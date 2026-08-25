@@ -48,6 +48,9 @@ public:
     // 节点类型描述(前端编辑器面板):JSON 数组
     bool describe_types(std::string& out_json, std::string& err);
 
+    // 重新扫描插件目录(热加载新节点:丢文件即注册)
+    bool rescan(std::string& err);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

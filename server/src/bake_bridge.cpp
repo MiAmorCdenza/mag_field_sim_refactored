@@ -95,6 +95,17 @@ bool BakeBridge::describe_types(std::string& out_json, std::string& err) {
     }
 }
 
+bool BakeBridge::rescan(std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        impl_->graph.attr("registry").attr("scan")();
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+}
+
 std::optional<BakedField> BakeBridge::bake(const std::string& slot, std::string& err) {
     try {
         py::gil_scoped_acquire g;

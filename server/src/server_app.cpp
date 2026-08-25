@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -276,6 +277,47 @@ struct ServerApp::Impl {
         }
     }
 
+    // 插件目录指纹(新文件/修改/删除都会改变)
+    uint64_t plugin_stamp() {
+        uint64_t h = 0;
+        for (const auto& dir : {cfg.root + "/nodes", cfg.root + "/user_nodes"}) {
+            std::error_code ec;
+            std::filesystem::directory_iterator it(dir, ec);
+            if (ec) continue;
+            for (auto& e : it) {
+                if (e.path().extension() != ".py") continue;
+                auto t = std::filesystem::last_write_time(e.path(), ec);
+                h ^= (uint64_t)t.time_since_epoch().count() * 2654435761ull +
+                     (uint64_t)(ec ? 0 : e.file_size());
+            }
+        }
+        return h;
+    }
+
+    // 热加载监听:插件目录变化 → 重扫注册表 → 广播新节点面板
+    void hotreload_watcher() {
+        uint64_t last = plugin_stamp();
+        while (st.running) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            uint64_t cur = plugin_stamp();
+            if (cur == last) continue;
+            last = cur;
+            std::string err, desc;
+            bool ok = false;
+            {
+                std::lock_guard<std::mutex> g(bridge_m);
+                if (bridge.rescan(err)) ok = bridge.describe_types(desc, err);
+            }
+            if (ok) {
+                json m{{"type", "registry"}, {"types", json::parse(desc)}};
+                broadcast_text(m.dump());
+                std::cout << "[hotreload] 插件目录变化,注册表已刷新" << std::endl;
+            } else {
+                std::cerr << "[hotreload] 重扫失败: " << err << std::endl;
+            }
+        }
+    }
+
     int run() {
         std::cout << "🚀 mf_server: 动态节点仿真服务器" << std::endl;
 
@@ -310,6 +352,7 @@ struct ServerApp::Impl {
             std::cerr << "⚠️ 主线程 GIL 释放失败" << std::endl;
 
         // 管线
+        st.particle_count = cfg.particle_count;
         PipelineConfig pc;
         pc.particle_count = cfg.particle_count;
         pc.steps_per_frame = cfg.steps_per_frame;
@@ -321,6 +364,7 @@ struct ServerApp::Impl {
         // 线程
         std::thread baker([this] { bake_worker(); });
         std::thread sim([this] { sim_loop(); });
+        std::thread watcher([this] { hotreload_watcher(); });
 
         submit_bake();
 
@@ -459,6 +503,7 @@ struct ServerApp::Impl {
         bake_cv.notify_all();
         if (baker.joinable()) baker.join();
         if (sim.joinable()) sim.join();
+        if (watcher.joinable()) watcher.join();
         return 0;
     }
 };

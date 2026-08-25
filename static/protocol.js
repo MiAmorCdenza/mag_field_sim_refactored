@@ -77,6 +77,9 @@ window.protocol = (function () {
             }
         } else if (m.type === "graph.error") {
             window.toast("图错误: " + m.message);
+        } else if (m.type === "registry") {
+            window.editor.initRegistry(m.types);
+            window.toast("🔌 插件热更新:节点面板已刷新");
         }
     }
 

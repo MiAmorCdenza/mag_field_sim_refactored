@@ -89,6 +89,39 @@ async def main():
         await asyncio.sleep(0.5)
         print("✓ respawn / 粒子数变更已受理")
 
+        # 6) 插件热加载:丢文件 → 服务器自动重扫并广播新节点面板
+        import os
+        plugin_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "user_nodes", "hot_test.py")
+        with open(plugin_path, "w", encoding="utf-8") as f:
+            f.write('''from engine import register_node, Node, Param, Field\n'''
+                    '''import numpy as np\n\n'''
+                    '''@register_node(type="hot_test_node", name="热加载测试", '''
+                    '''category="用户/测试", inputs={}, '''
+                    '''outputs={"field": "vector_field"}, '''
+                    '''params={"v": Param("scalar", default=1.0)}, version=1)\n'''
+                    '''class HotTestNode(Node):\n'''
+                    '''    def compute(self):\n'''
+                    '''        lat = self.lattice\n'''
+                    '''        d = np.full((lat.nx, lat.ny, lat.nz, 3), self.params["v"])\n'''
+                    '''        return {"field": Field("vector", d, lat)}\n''')
+        try:
+            got_registry = False
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + 20
+            while loop.time() < deadline:
+                m = await recv_text(ws, 15)
+                if m["type"] == "registry":
+                    types = {t["type"] for t in m["types"]}
+                    if "hot_test_node" in types:
+                        got_registry = True
+                        break
+            assert got_registry, "未收到含 hot_test_node 的 registry 广播"
+            print("✓ 插件热加载:丢文件 → 自动注册 hot_test_node")
+        finally:
+            os.remove(plugin_path)
+
 
 asyncio.run(main())
 print("WS 客户端端到端测试全部通过 ✅")
