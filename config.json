@@ -1,0 +1,52 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8001
+    },
+    "simulation": {
+        "fps": 60,
+        "steps_per_frame": 5
+    },
+    "network": {
+        "fps": 30
+    },
+    "default_state": {
+        "max_range": 12.5,
+        "particle_count": 100,
+        "day": 172.0,
+        "model_prec": 1,
+        "field_prec": 1,
+        "mag_model": 1,
+        "b_multiplier": 1.0,
+        "spawn_radius_ratio": 0.5,
+        "render_radius_ratio": 1.0,
+        "enable_gravity": false,
+        "gravity_multiplier": 1.0,
+        "enable_electric_field": true,
+        "efield_model": 0,
+        "electric_field_multiplier": 1.0,
+        "enable_atmosphere": false,
+        "atmos_model": 0,
+        "atmosphere_multiplier": 1.0,
+        "emitter_mode": 0,
+        "emitter_lon": 0.0,
+        "emitter_lat": 0.0,
+        "v_base": 400.0,
+        "v_random": 10.0,
+        "angle_random": 5.0,
+        "dist_ratio": 1.0,
+        "kp": 2.0,
+        "solar_wind_compression": 1.22,
+        "auto_fetch_solar": true,
+        "imf_polarity": -1
+    },
+    "ts05_params": {
+        "_comment": "W1-W6 are storm-time coupling integrals; 0 for quiet conditions",
+        "w1": 0.0,
+        "w2": 0.0,
+        "w3": 0.0,
+        "w4": 0.0,
+        "w5": 0.0,
+        "w6": 0.0
+    }
+}

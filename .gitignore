@@ -1,0 +1,36 @@
+# 构建产物
+build/
+deploy_package/
+dist/
+*.zip
+
+# 本地运行环境(不入库)
+.venv/
+python_embed/
+
+# SWMF 数据与代理模型产物(不入库,可再生成)
+data_swmf/
+surrogate/*.pt
+*.log
+
+# 可执行文件
+MagFieldSim_Server.exe
+msh23_model/msh23_test.exe
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 编译扩展(f2py 产物;如需入库可移除下行)
+models/*.pyd
+models/*.so
+models/*.dll
+
+# 运行时生成
+presets.json
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

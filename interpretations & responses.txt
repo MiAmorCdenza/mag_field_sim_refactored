@@ -1,0 +1,144 @@
+01:03
+MiAmorCdenza
+
+PS C:\Users\Admin\Documents\trae_projects\mag_field_sim> .\deploy.ps1
+
+所在位置 C:\Users\Admin\Documents\trae_projects\mag_field_
+
+sim\deploy.ps1:89 字符: 12
+
++ Write-Host "灏?EarthMagFieldSim.zip 澶嶅埗鍒扮洰鏍囩數鑴
+
+戣В鍘嬪嵆鍙€? -ForegroundCol ...
+
++            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+~~~~~~~~~~~~~
+
+字符串缺少终止符: "。
+
++ CategoryInfo          : ParserError: (:) [], ParseE
+
+xception
+
++ FullyQualifiedErrorId : TerminatorExpectedAtEndOfSt
+
+ring
+
+SOLO Agent
+
+思考过程
+
+PowerShell 对 UTF-8 中文支持不稳，重写成纯 ASCII。
+
+deploy.ps1
+deploy.ps1
+
++ 30 - 31
+
+查看变更
+
+Thought
+
+有 CDATA 包裹残留，修复一下：
+
+deploy.ps1
+deploy.ps1
+
++ 1 - 1
+
+查看变更
+
+Thought
+
+deploy.ps1
+deploy.ps1
+
++ 0 - 1
+
+查看变更
+
+Thought
+
+验证文件头尾干净：
+
+deploy.ps1
+
+deploy.ps1
+
+Thought
+
+已修复， deploy.ps1 现在是干净的纯 ASCII —— 再跑一次：
+
+产物汇总
+
+1个文件已更改 + 28 - 30
+
+查看变更
+
+deploy.ps1
+C:\Users\Admin\Documents\trae_projects\mag_field_sim\deploy.ps1
+
++ 28 - 30
+
+01:05
+MiAmorCdenza
+
+PS C:\Users\Admin\Documents\trae_projects\mag_field_sim> .\deploy.ps1
+
+========================================
+
+EarthMagFieldSim Deploy Packer
+
+========================================
+
+[Packing]
+
+Copy-Item : 未能找到路径“C:\Users\Admin\Documents\trae_pr
+
+ojects\mag_field_sim\deploy_package\EarthMagFieldSim\build
+
+\Release\MagFieldSim_Server.exe”的一部分。
+
+所在位置 C:\Users\Admin\Documents\trae_projects\mag_field_
+
+sim\deploy.ps1:32 字符: 9
+
++         Copy-Item -Path $src -Destination $dst -Force
+
++         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
++ CategoryInfo          : NotSpecified: (:) [Copy-Ite
+
+m], DirectoryNotFoundException
+
++ FullyQualifiedErrorId : System.IO.DirectoryNotFound
+
+Exception,Microsoft.PowerShell.Commands.CopyItemComma
+
+nd
+
+SOLO Agent
+
+思考过程
+
+路径问题 — 目标下没有 build\Release 子目录。修正为扁平复制：
+
+deploy.ps1
+deploy.ps1
+
++ 13 - 11
+
+查看变更
+
+Thought
+
+修好了。 Copy-Item 不会自动创建目标子目录，现在改为 src→dst 映射 + 先建目录再复制。再跑：
+
+```
+.\deploy.ps1
+```
+
+产物汇总
+
+1个文件已更改 + 13 - 11

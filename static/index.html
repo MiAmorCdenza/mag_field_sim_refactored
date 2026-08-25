@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地球磁场与带电粒子运动实时仿真</title>
+    <style>
+        :root {
+            --bg: rgba(245, 248, 252, 0.94);
+            --border: rgba(0, 0, 0, 0.08);
+            --accent: #2196F3;
+            --accent2: #1565C0;
+            --danger: #e53935;
+            --text: #37474F;
+            --text-dim: #78909C;
+            --surface: rgba(0, 0, 0, 0.03);
+            --surface-hover: rgba(0, 0, 0, 0.06);
+            --input-bg: #fff;
+            --input-border: #d0d7de;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { overflow: hidden; background: #000; color: var(--text); font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 13px; line-height: 1.5; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        
+        #ui-panel {
+            position: absolute; top: 16px; left: 16px; bottom: 16px;
+            width: 360px;
+            background: var(--bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow-y: auto; overflow-x: hidden;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+        }
+        #ui-panel.collapsed {
+            transform: translateX(calc(-100% - 20px));
+            opacity: 0; pointer-events: none;
+        }
+        #panel-toggle {
+            position: absolute; top: 24px; left: 16px;
+            width: 34px; height: 34px; border-radius: 50%;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--accent); font-size: 1.1rem; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            z-index: 1000; transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        }
+        #panel-toggle.collapsed {
+            left: 16px;
+        }
+        #panel-toggle:hover { background: var(--surface-hover); transform: scale(1.08); }
+        #ui-panel::-webkit-scrollbar { width: 5px; }
+        #ui-panel::-webkit-scrollbar-track { background: transparent; }
+        #ui-panel::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 10px; }
+        #ui-panel::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
+
+        .panel-inner { padding: 16px 14px; }
+        .panel-header {
+            text-align: center; padding-bottom: 12px; margin-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        .panel-header h1 {
+            font-size: 1.05rem; font-weight: 700;
+            color: var(--accent2); margin: 0;
+        }
+        .panel-header .subtitle { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+
+        .section {
+            background: var(--surface); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+            border: 1px solid var(--border);
+            transition: background 0.2s;
+        }
+        .section:hover { background: var(--surface-hover); }
+        .section-title {
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--accent); margin-bottom: 6px;
+        }
+        .section-title .icon { margin-right: 4px; }
+
+        .row { margin-bottom: 5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .row-label { font-size: 0.75rem; color: var(--text-dim); min-width: 0; flex: 1; white-space: nowrap; }
+        .row-value { font-size: 0.8rem; font-weight: 700; color: var(--accent2); min-width: 36px; text-align: right; }
+
+        input[type=range] {
+            -webkit-appearance: none; appearance: none;
+            width: 100%; height: 4px; margin: 3px 0;
+            background: rgba(0,0,0,0.1); border-radius: 3px; outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--accent); border: 2px solid #fff; cursor: pointer;
+            box-shadow: 0 0 6px rgba(33,150,243,0.3);
+            transition: transform 0.15s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+        select {
+            width: 100%; margin-top: 2px; padding: 4px 6px;
+            background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border);
+            border-radius: 6px; font-size: 0.75rem; outline: none; cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        select:focus { border-color: var(--accent); }
+
+        label { cursor: pointer; font-size: 0.78rem; display: flex; align-items: center; gap: 6px; color: var(--text); }
+        input[type=checkbox] { accent-color: var(--accent); transform: scale(1.1); margin: 0; }
+
+        .btn {
+            width: 100%; padding: 9px; border: none; border-radius: 8px; font-weight: 700;
+            font-size: 0.8rem; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-danger { background: linear-gradient(135deg, #e53935, #c62828); color: #fff; }
+        .btn-danger:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(229,57,53,0.35); }
+        .btn-accent {
+            background: #fff; color: var(--accent); border: 1px solid rgba(33,150,243,0.3);
+        }
+        .btn-accent:hover { background: rgba(33,150,243,0.06); }
+
+        .tip { font-size: 0.68rem; color: #e65100; margin-top: 3px; font-style: italic; }
+
+        .ptype-row {
+            display: flex; align-items: center; gap: 5px; padding: 4px 6px; margin: 2px 0;
+            border-radius: 6px; background: rgba(0,0,0,0.02); font-size: 0.74rem;
+            transition: background 0.2s;
+        }
+        .ptype-row:hover { background: rgba(0,0,0,0.04); }
+        .ptype-row .pt-name { width: 60px; padding: 2px 4px; border: 1px solid var(--input-border); border-radius: 4px; font-size: 0.7rem; background: var(--input-bg); color: var(--text); }
+        .ptype-row .pt-num { width: 36px; padding: 2px 3px; border: 1px solid var(--input-border); border-radius: 4px; font-size: 0.68rem; background: var(--input-bg); color: var(--text); text-align: center; }
+        .ptype-row .pt-del { margin-left: auto; cursor: pointer; color: var(--danger); font-weight: 700; padding: 2px 5px; border-radius: 4px; font-size: 0.7rem; border: none; background: none; }
+        .ptype-row .pt-del:hover { background: rgba(229,57,53,0.1); }
+
+        .label {
+            position: absolute; color: #fff; font-size: 11px; font-weight: 600;
+            pointer-events: none; text-shadow: 0 0 6px rgba(0,0,0,0.8);
+            transform: translate(-50%, -50%);
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+<button id="panel-toggle" title="收起/展开面板" onclick="togglePanel()">◀</button>
+<div id="ui-panel"><div class="panel-inner">
+    <div class="panel-header">
+        <h1>🌍 地球磁场仿真</h1>
+        <div class="subtitle">Tsyganenko Models · Real-time Particle Tracing</div>
+    </div>
+
+    <!-- ═══ Solar Wind ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">☀</span>太阳风参数</div>
+        <div class="row">
+            <span class="row-label">Kp 指数</span>
+            <span class="row-value" id="kp-val">2.0</span>
+        </div>
+        <input type="range" id="kp-slider" min="0" max="9" value="2" step="0.5">
+        <div class="row">
+            <span class="row-label">压缩系数</span>
+            <span class="row-value" id="comp-val">1.22</span>
+        </div>
+        <input type="range" id="comp-slider" min="1.0" max="2.2" value="1.22" step="0.01">
+        <label style="margin-top:4px;"><input type="checkbox" id="auto-fetch-cb" checked> NOAA 自动更新</label>
+        <label style="margin-top:4px;"><input type="checkbox" id="parker-custom-cb"> 自定义帕克螺旋角度</label>
+        <div class="row" style="margin-top:2px;">
+            <span class="row-label">螺旋角度</span>
+            <span class="row-value" id="parker-angle-val">40</span>°
+        </div>
+        <input type="range" id="parker-angle-slider" min="25" max="55" value="40" step="1" disabled>
+    </div>
+
+    <!-- ═══ Simulation ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">⚙</span>模拟设置</div>
+        <div class="row">
+            <span class="row-label">计算范围</span>
+            <span class="row-value" id="range-val">12.5</span> Re
+        </div>
+        <input type="range" id="range-slider" min="5" max="90" value="12.5" step="0.5">
+        <div class="row">
+            <span class="row-label">渲染半径占比</span>
+            <span class="row-value" id="render-radius-val">100</span>%
+        </div>
+        <input type="range" id="render-radius-slider" min="0" max="100" value="100" step="1">
+        <div class="row">
+            <span class="row-label">粒子数量</span>
+            <span class="row-value" id="ptc-val">100</span>
+        </div>
+        <input type="range" id="ptc-slider" min="10" max="20000" value="100" step="10">
+        <div class="row" id="spawn-ratio-container">
+            <span class="row-label">发生范围比例</span>
+            <span class="row-value" id="spawn-ratio-val">0.5</span>
+        </div>
+        <input type="range" id="spawn-ratio-slider" min="0.001" max="1.0" value="0.5" step="0.001">
+        <div class="row">
+            <span class="row-label">模拟日期 (天)</span>
+            <span class="row-value" id="day-val">172</span>
+        </div>
+        <input type="range" id="day-slider" min="0" max="365" value="172" step="1">
+        <div class="row">
+            <span class="row-label">计算精度</span>
+            <span class="row-value" id="model-prec-val">中</span>
+        </div>
+        <input type="range" id="model-prec-slider" min="0" max="3" value="1" step="1">
+    </div>
+
+    <!-- ═══ Physics ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">⚡</span>物理模块</div>
+        <label><input type="checkbox" id="enable-gravity-cb"> 引力</label>
+        <div class="row"><span class="row-label">引力倍率</span><span class="row-value" id="grav-mult-val">1</span>x</div>
+        <input type="range" id="grav-mult-slider" min="1" max="100000" value="1" step="1">
+        
+        <label style="margin-top:6px;"><input type="checkbox" id="enable-efield-cb"> 空间电场</label>
+        <select id="efield-model">
+            <option value="0">简易对流+共转</option>
+            <option value="1">Volland-Stern (含屏蔽)</option>
+        </select>
+        <div class="row"><span class="row-label">电场倍率</span><span class="row-value" id="efield-mult-val">1</span>x</div>
+        <input type="range" id="efield-mult-slider" min="1" max="100" value="1" step="1">
+        
+        <label style="margin-top:6px;"><input type="checkbox" id="enable-atmos-cb"> 大气阻尼</label>
+        <select id="atmos-model">
+            <option value="0">简易单层指数</option>
+            <option value="1">分层指数模型</option>
+        </select>
+        <div class="row"><span class="row-label">大气倍率</span><span class="row-value" id="atmos-mult-val">1</span>x</div>
+        <input type="range" id="atmos-mult-slider" min="1" max="100" value="1" step="1">
+    </div>
+
+    <!-- ═══ Magnetosphere ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">🧲</span>磁场模型</div>
+        <select id="mag-model">
+            <option value="0">简易解析模型</option>
+            <option value="1">T89 (1989)</option>
+            <option value="2">T96 (1996)</option>
+            <option value="3">T01 (2001)</option>
+            <option value="4" selected>T04 (2004 · 推荐)</option>
+            <option value="5">TS05 (2005 · 暴时)</option>
+            <option value="6">TA16 RBF (2016)</option>
+        </select>
+        <label style="margin-top:5px;"><input type="checkbox" id="enable-tail-cb"> 远磁尾解析模型</label>
+        <select id="tail-model">
+            <option value="1">Harris 电流片</option>
+            <option value="2" selected>Flaring Harris (推荐)</option>
+            <option value="3">Kan 1973 2D 解</option>
+        </select>
+        <label style="margin-top:5px;"><input type="checkbox" id="enable-mp-cb"> 磁层顶全包边</label>
+        <select id="mp-model">
+            <option value="1">MP + 均匀 IMF (快速)</option>
+            <option value="2">MP + 磁鞘压缩 IMF</option>
+        </select>
+        <div class="row" style="margin-top:4px;">
+            <span class="row-label">磁场强度倍率</span>
+            <span class="row-value" id="b-mult-val">1.0</span>x
+        </div>
+        <input type="range" id="b-mult-slider" min="0.1" max="50.0" value="1.0" step="0.1">
+    </div>
+
+    <!-- ═══ Emitter ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">🚀</span>粒子发射器</div>
+        <select id="emitter-mode">
+            <option value="0">定向区域发射</option>
+            <option value="1">全向球面发射</option>
+            <option value="2">空间体积随机</option>
+        </select>
+        <div id="directional-controls">
+            <div class="row"><span class="row-label">经度 ω</span><span class="row-value" id="lon-val">0</span>°</div>
+            <input type="range" id="lon-slider" min="0" max="360" value="0" step="1">
+            <div class="row"><span class="row-label">纬度 φ</span><span class="row-value" id="lat-val">0</span>°</div>
+            <input type="range" id="lat-slider" min="-90" max="90" value="0" step="1">
+        </div>
+        <div id="spawn-dist-container">
+            <div class="row"><span class="row-label">创生距离</span><span class="row-value" id="spawn-dist-val">1.0</span> Re</div>
+            <input type="range" id="spawn-dist-slider" min="0.0" max="2.0" value="1.0" step="0.01">
+        </div>
+        <div class="row"><span class="row-label">初速度</span><span class="row-value" id="vbase-val">400</span> km/s</div>
+        <input type="range" id="vbase-slider" min="100" max="300000" value="400" step="10">
+        <div class="row"><span class="row-label">速度随机</span><span class="row-value" id="vrand-val">10</span>%</div>
+        <input type="range" id="vrand-slider" min="0" max="100" value="10" step="1">
+        <div class="row"><span class="row-label">角度随机</span><span class="row-value" id="angrand-val">5</span>%</div>
+        <input type="range" id="angrand-slider" min="0" max="100" value="5" step="1">
+    </div>
+
+    <!-- ═══ Visualization ═══ -->
+    <div class="section">
+        <div class="section-title"><span class="icon">👁</span>粒子与渲染</div>
+        <div id="particle-types-container" style="margin-bottom:6px;"></div>
+        <button id="add-ptype-btn" class="btn btn-accent" style="margin-bottom:6px;">+ 添加粒子类型</button>
+        <div class="row"><span class="row-label">拖尾长度</span><span class="row-value" id="trail-len-val">50</span></div>
+        <input type="range" id="trail-len-slider" min="0" max="200" value="50" step="1">
+        <p class="tip">💡 高粒子数建议关闭拖尾</p>
+        <label><input type="checkbox" id="render-mag-cb" checked> 渲染磁场线</label>
+        <label><input type="checkbox" id="render-efield-cb" checked> 渲染电场线</label>
+        <label><input type="checkbox" id="render-col-cb" checked> 渲染碰撞轨迹</label>
+        <label><input type="checkbox" id="hide-ptc-cb"> 隐藏活动粒子</label>
+        <label><input type="checkbox" id="hide-trail-cb"> 隐藏拖尾</label>
+        <div class="row" style="margin-top:4px;">
+            <span class="row-label">磁场渲染精度</span>
+            <span class="row-value" id="field-prec-val">中</span>
+        </div>
+        <input type="range" id="field-prec-slider" min="0" max="3" value="1" step="1">
+    </div>
+
+    <button id="respawn-all-btn" class="btn btn-danger" style="margin-top:4px;">🔄 重置所有粒子</button>
+
+    <!-- ═══ Presets ═══ -->
+    <div class="section" style="margin-top:8px;">
+        <div class="section-title"><span class="icon">💾</span>参数预设</div>
+        <div class="row">
+            <input type="text" id="preset-name" placeholder="预设名称..." style="flex:1; padding:4px 6px; border:1px solid var(--input-border); border-radius:6px; font-size:0.75rem; background:var(--input-bg); color:var(--text);">
+            <button id="preset-save-btn" class="btn btn-accent" style="width:auto; padding:4px 10px; font-size:0.7rem;">保存</button>
+        </div>
+        <div class="row" style="margin-top:4px;">
+            <select id="preset-select" style="flex:1;">
+                <option value="">-- 选择预设 --</option>
+            </select>
+            <button id="preset-load-btn" class="btn btn-accent" style="width:auto; padding:4px 8px; font-size:0.7rem;">加载</button>
+            <button id="preset-del-btn" class="btn btn-accent" style="width:auto; padding:4px 6px; font-size:0.7rem; color:var(--danger);">✕</button>
+        </div>
+    </div>
+
+    <div style="text-align:center; margin-top:8px; font-size:0.65rem; color:var(--text-dim);">
+        🟡 正电荷 · 🔵 负电荷 · 拖拽旋转 · 滚轮缩放
+    </div>
+</div></div>
+    <div id="canvas-container"></div>
+
+    <div id="grid-progress" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); color:#fff; padding:24px 32px; border-radius:12px; text-align:center; z-index:9999; font-family:Arial; min-width:300px;">
+        <div style="font-size:1.1rem; margin-bottom:12px;" id="grid-progress-text">⏳ 正在计算磁场网格...</div>
+        <div style="background:#333; border-radius:6px; height:8px; overflow:hidden;">
+            <div id="grid-progress-bar" style="background:linear-gradient(90deg,#3498db,#2ecc71); height:100%; width:0%; border-radius:6px; transition:width 0.3s;"></div>
+        </div>
+    </div>
+
+    <script src="/main.js"></script>
+</body>
+</html>
