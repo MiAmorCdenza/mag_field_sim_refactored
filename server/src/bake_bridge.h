@@ -25,6 +25,10 @@ public:
     // 初始化解释器(需在程序早期调用一次);root = 仓库根(engine/nodes 所在)
     bool init(const std::string& root, std::string& err);
 
+    // 释放主线程持有的 GIL(必须:scoped_interpreter 创建后主线程持续持 GIL,
+    // 不释放则烘焙线程的 gil_scoped_acquire 将永久阻塞)
+    bool release_main_thread();
+
     // 加载图 JSON(替换当前图;失败保留上次可用图并返回 false)
     bool load_graph(const std::string& json, std::string& err);
 

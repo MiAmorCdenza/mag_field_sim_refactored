@@ -57,7 +57,7 @@ inline void boris_step(Particles& p, size_t i, const IntegratorConfig& cfg,
 
     // 亚步长:回旋频率自适应(与 legacy 完全一致)
     Vec3 B;
-    tables.b->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
+    if (tables.b) tables.b->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
     double B_mag = B.norm();
     double wc = std::abs(q_prime * B_mag) / gamma;
     int n_sub = 1;
@@ -69,7 +69,8 @@ inline void boris_step(Particles& p, size_t i, const IntegratorConfig& cfg,
     double GM = 1.5398e-6 * cfg.gravity_mult;
 
     for (int s = 0; s < n_sub; ++s) {
-        if (s > 0) tables.b->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
+        if (s > 0 && tables.b)
+            tables.b->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
 
         Vec3 g(0, 0, 0);
         if (cfg.enable_gravity) {

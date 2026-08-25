@@ -1,13 +1,9 @@
 // mf_server:节点引擎驱动的实时仿真服务器。
 //
-// 头less 集成模式(本轮验收):
-//   mf_server --root <repo> --graph graphs/integration_test_graph.json
-//     --frames 120 --particles 20000
-// 流程:嵌入 Python → 加载图 → 烘焙 B/E/drag → 安装 C++ 表 →
-//       数值对拍(网格节点处 C++ 采样 vs Python 烘焙)→ 参数回路(set_param) →
-//       2 万粒子帧循环 + 编码。
-//
-// WebSocket 服务在下一阶段接入(协议沿用旧版 init_config/bake_progress/二进制帧)。
+// 服务器模式(默认):
+//   mf_server --root <repo> [--graph <json>] [--port 8001] [--particles N]
+// 头less 集成模式(CI/基准):
+//   mf_server --headless --root <repo> --graph <json> [--frames N] [--particles N]
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -15,9 +11,67 @@
 #include <sstream>
 #include <string>
 
+#define NOMINMAX
+#include <windows.h>
+#include <tlhelp32.h>
+
 #include "bake_bridge.h"
 #include "sim_pipeline.h"
+#include "server_app.h"
 #include "../core/table3d.h"
+
+// 模块基址表(崩溃时判定栈帧所属 DLL)
+static DWORD64 g_modbases[512];
+static char g_modnames[512][MAX_PATH];
+static int g_nmods = 0;
+
+static void snapshot_modules() {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+    if (snap == INVALID_HANDLE_VALUE) return;
+    MODULEENTRY32 me{};
+    me.dwSize = sizeof(me);
+    if (Module32First(snap, &me)) {
+        do {
+            if (g_nmods < 512) {
+                g_modbases[g_nmods] = (DWORD64)me.modBaseAddr;
+                strncpy_s(g_modnames[g_nmods], me.szModule, MAX_PATH - 1);
+                ++g_nmods;
+            }
+        } while (Module32Next(snap, &me));
+    }
+    CloseHandle(snap);
+}
+
+static const char* module_of(DWORD64 addr, DWORD64* off) {
+    const char* best = "?";
+    DWORD64 best_base = 0;
+    for (int i = 0; i < g_nmods; ++i) {
+        if (g_modbases[i] <= addr && g_modbases[i] > best_base) {
+            best = g_modnames[i];
+            best_base = g_modbases[i];
+        }
+    }
+    if (off) *off = addr - best_base;
+    return best;
+}
+
+// 崩溃瞬间抓栈(诊断用)
+static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code == 0xe06d7363) return EXCEPTION_CONTINUE_SEARCH;  // 常规 C++ 异常
+    std::fprintf(stderr, "\nCRASH code=0x%08lx at=%p\n", code,
+                 ep->ExceptionRecord->ExceptionAddress);
+    void* stack[48];
+    USHORT n = CaptureStackBackTrace(0, 48, stack, nullptr);
+    for (USHORT i = 0; i < n; ++i) {
+        DWORD64 off = 0;
+        const char* mod = module_of((DWORD64)stack[i], &off);
+        std::fprintf(stderr, "  [%u] %p  %s+0x%llx\n", i, stack[i], mod,
+                     (unsigned long long)off);
+    }
+    std::fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 
 static std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -37,22 +91,8 @@ static int failures = 0;
         }                                                                     \
     } while (0)
 
-int main(int argc, char** argv) {
-    std::string root = ".";
-    std::string graph_path;
-    int frames = 120, count = 20000;
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        if (a == "--root" && i + 1 < argc) root = argv[++i];
-        else if (a == "--graph" && i + 1 < argc) graph_path = argv[++i];
-        else if (a == "--frames" && i + 1 < argc) frames = std::atoi(argv[++i]);
-        else if (a == "--particles" && i + 1 < argc) count = std::atoi(argv[++i]);
-    }
-    if (graph_path.empty()) {
-        std::printf("用法: mf_server --root <repo> --graph <json> [--frames N] [--particles N]\n");
-        return 2;
-    }
-
+static int run_headless(const std::string& root, const std::string& graph_path,
+                        int frames, int count) {
     std::printf("=== 1) 嵌入 Python 引擎 ===\n");
     BakeBridge bridge;
     std::string err;
@@ -169,4 +209,39 @@ int main(int argc, char** argv) {
 
     std::printf(failures ? "\n[%d 项失败]\n" : "\n端到端集成全部通过 ✅\n", failures);
     return failures ? 1 : 0;
+}
+
+int main(int argc, char** argv) {
+    AddVectoredExceptionHandler(1, crash_handler);
+    snapshot_modules();
+    std::string root = ".";
+    std::string graph_path;
+    int frames = 120, count = 20000;
+    int port = 8001;
+    bool headless = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--root" && i + 1 < argc) root = argv[++i];
+        else if (a == "--graph" && i + 1 < argc) graph_path = argv[++i];
+        else if (a == "--frames" && i + 1 < argc) frames = std::atoi(argv[++i]);
+        else if (a == "--particles" && i + 1 < argc) count = std::atoi(argv[++i]);
+        else if (a == "--port" && i + 1 < argc) port = std::atoi(argv[++i]);
+        else if (a == "--headless") headless = true;
+    }
+
+    if (headless) {
+        if (graph_path.empty()) {
+            std::printf("用法: mf_server --headless --root <repo> --graph <json>\n");
+            return 2;
+        }
+        return run_headless(root, graph_path, frames, count);
+    }
+
+    ServerConfig cfg;
+    cfg.root = root;
+    cfg.graph_path = graph_path;
+    cfg.port = port;
+    cfg.particle_count = count;
+    ServerApp app;
+    return app.run(cfg);
 }

@@ -7,6 +7,7 @@ namespace py = pybind11;
 
 struct BakeBridge::Impl {
     py::scoped_interpreter guard;
+    std::unique_ptr<py::gil_scoped_release> release;  // 主线程释放 GIL
     py::object graph;
 };
 
@@ -21,9 +22,25 @@ bool BakeBridge::init(const std::string& root, std::string& err) {
         auto engine = py::module_::import("engine");
         auto reg = engine.attr("default_registry")();
         impl_->graph = engine.attr("Graph")(reg, py::none());
+        // 预热导入:工作线程内的首次包导入在嵌入式场景下不稳定
+        py::module_::import("numpy");
+        py::module_::import("geopack.t89");
+        py::module_::import("geopack.t96");
+        py::module_::import("geopack.t01");
+        py::module_::import("geopack.t04");
         return true;
     } catch (const std::exception& e) {
         err = e.what();
+        return false;
+    }
+}
+
+bool BakeBridge::release_main_thread() {
+    if (!impl_) return false;
+    try {
+        impl_->release = std::make_unique<py::gil_scoped_release>();
+        return true;
+    } catch (...) {
         return false;
     }
 }

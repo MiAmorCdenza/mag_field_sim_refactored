@@ -26,6 +26,7 @@ public:
     double max_range = 90.0;
 
     explicit SimPipeline(const PipelineConfig& cfg);
+    SimPipeline() : emitter(EmitterConfig{}), steps_per_frame(5), max_range(90.0) {}
 
     // 按槽位名安装烘焙结果(B/E/drag/gravity)
     bool install_baked(const BakedField& f, std::string& err);
