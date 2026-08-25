@@ -72,6 +72,17 @@ async def main():
                     break
         print("✓ graph.upload → 重烘焙完成")
 
+        # 4.5) 枚举参数(通用值通道)
+        await ws.send(json.dumps({"type": "node.param", "node": "tail",
+                                  "name": "model", "value": "harris"}))
+        while True:
+            m = await recv_text(ws, 60)
+            if m["type"] == "bake_progress":
+                print("  bake_progress:", m["state"])
+                if m["state"] == "done":
+                    break
+        print("✓ 枚举参数(尾模型 → harris)→ 重烘焙完成")
+
         # 5) respawn + 粒子数回退
         await ws.send(json.dumps({"type": "respawn"}))
         await ws.send(json.dumps({"type": "set_particle_count", "value": 100}))

@@ -60,9 +60,16 @@ bool BakeBridge::load_graph(const std::string& json, std::string& err) {
 
 bool BakeBridge::set_param(const std::string& node, const std::string& name,
                            double value, std::string& err) {
+    return set_param_value(node, name, std::to_string(value), err);
+}
+
+bool BakeBridge::set_param_value(const std::string& node, const std::string& name,
+                                 const std::string& json_value, std::string& err) {
     try {
         py::gil_scoped_acquire g;
-        impl_->graph.attr("set_param")(node, name, value);
+        auto json_mod = py::module_::import("json");
+        py::object v = json_mod.attr("loads")(json_value);
+        impl_->graph.attr("set_param")(node, name, v);
         return true;
     } catch (const std::exception& e) {
         err = e.what();
@@ -73,6 +80,19 @@ bool BakeBridge::set_param(const std::string& node, const std::string& name,
 uint64_t BakeBridge::graph_version() {
     py::gil_scoped_acquire g;
     return impl_->graph.attr("version").cast<uint64_t>();
+}
+
+bool BakeBridge::describe_types(std::string& out_json, std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        auto json_mod = py::module_::import("json");
+        py::object desc = impl_->graph.attr("registry").attr("describe")();
+        out_json = json_mod.attr("dumps")(desc).cast<std::string>();
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
 }
 
 std::optional<BakedField> BakeBridge::bake(const std::string& slot, std::string& err) {

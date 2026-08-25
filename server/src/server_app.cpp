@@ -384,8 +384,8 @@ struct ServerApp::Impl {
                         uint64_t ver = 0;
                         {
                             std::lock_guard<std::mutex> g(bridge_m);
-                            ok = bridge.set_param(msg["node"], msg["name"],
-                                                  msg["value"].get<double>(), err);
+                            ok = bridge.set_param_value(msg["node"], msg["name"],
+                                                        msg["value"].dump(), err);
                             if (ok) ver = bridge.graph_version();
                         }
                         if (ok) {
@@ -419,6 +419,20 @@ struct ServerApp::Impl {
                     std::cerr << "[ws] 消息处理失败: " << e.what() << std::endl;
                 }
             });
+
+        CROW_ROUTE(app, "/api/nodes")([this]() {
+            std::string out, err;
+            {
+                std::lock_guard<std::mutex> g(bridge_m);
+                if (!bridge.describe_types(out, err))
+                    return crow::response(500, err);
+            }
+            return crow::response(out);
+        });
+        CROW_ROUTE(app, "/api/graph")([this]() {
+            std::lock_guard<std::mutex> g(st.m);
+            return crow::response(st.graph_json);
+        });
 
         CROW_ROUTE(app, "/")([this]() {
             std::ifstream f(cfg.root + "/static/index.html");

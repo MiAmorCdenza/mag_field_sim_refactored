@@ -6,6 +6,9 @@
 // - 本文件无任何 Python 依赖,全原生计划 = 每帧零 Python
 #pragma once
 #include <cmath>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
 #include <thread>
 #include <vector>
 #include "vec3.h"
@@ -121,7 +124,77 @@ inline void boris_step(Particles& p, size_t i, const IntegratorConfig& cfg,
     p.vx[i] = vel.x; p.vy[i] = vel.y; p.vz[i] = vel.z;
 }
 
-// 多线程并行步进(与 legacy step() 同款分块策略)
+// 持久步进线程池:避免每步创建/回收线程的系统开销。
+class StepThreadPool {
+public:
+    explicit StepThreadPool(size_t n_threads) : n_(n_threads) {
+        for (size_t i = 0; i < n_; ++i)
+            threads_.emplace_back([this, i] { run_worker(i); });
+    }
+    ~StepThreadPool() {
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        for (auto& t : threads_) t.join();
+    }
+
+    // fn(chunk_id, start, end):按线程均分区间并行执行,返回前全部完成
+    void parallel_for(size_t total,
+                      const std::function<void(size_t, size_t, size_t)>& fn) {
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            fn_ = fn;
+            total_ = total;
+            done_ = 0;
+            ++gen_;
+        }
+        cv_.notify_all();
+        std::unique_lock<std::mutex> lk(m_);
+        done_cv_.wait(lk, [this] { return done_ == n_; });
+    }
+
+private:
+    void run_worker(size_t id) {
+        size_t my_seen = 0;  // 每线程私有:记录本线程已处理的代际
+        while (true) {
+            std::function<void(size_t, size_t, size_t)> fn;
+            size_t total = 0;
+            size_t gen = 0;
+            {
+                std::unique_lock<std::mutex> lk(m_);
+                cv_.wait(lk, [this, &my_seen] {
+                    return gen_ != my_seen || stop_;
+                });
+                if (stop_) return;
+                my_seen = gen_;
+                gen = gen_;
+                fn = fn_;
+                total = total_;
+            }
+            size_t chunk = (total + n_ - 1) / n_;
+            size_t start = id * chunk;
+            size_t end = start + chunk < total ? start + chunk : total;
+            if (start < end) fn(id, start, end);
+            {
+                std::lock_guard<std::mutex> lk(m_);
+                // 仅当代任务仍是最新一代时计数,防止旧代完成污染新代屏障
+                if (gen == gen_ && ++done_ == n_) done_cv_.notify_all();
+            }
+        }
+    }
+
+    size_t n_;
+    std::vector<std::thread> threads_;
+    std::mutex m_;
+    std::condition_variable cv_, done_cv_;
+    std::function<void(size_t, size_t, size_t)> fn_;
+    size_t total_ = 0, done_ = 0, gen_ = 0;
+    bool stop_ = false;
+};
+
+// 多线程并行步进(持久线程池分块)
 inline void step_parallel(Particles& p, const IntegratorConfig& cfg,
                           const ForceTables& tables) {
     int n = (int)p.count;
@@ -129,16 +202,8 @@ inline void step_parallel(Particles& p, const IntegratorConfig& cfg,
     int n_threads = (int)std::thread::hardware_concurrency();
     if (n_threads == 0) n_threads = 4;
     if (n_threads > n) n_threads = n;
-
-    std::vector<std::thread> threads;
-    int chunk = (n + n_threads - 1) / n_threads;
-    for (int t = 0; t < n_threads; ++t) {
-        int start = t * chunk;
-        int end = std::min(start + chunk, n);
-        if (start >= end) break;
-        threads.emplace_back([&, start, end]() {
-            for (int i = start; i < end; ++i) boris_step(p, (size_t)i, cfg, tables);
-        });
-    }
-    for (auto& th : threads) th.join();
+    static StepThreadPool pool((size_t)std::max(1, n_threads));
+    pool.parallel_for((size_t)n, [&](size_t, size_t start, size_t end) {
+        for (size_t i = start; i < end; ++i) boris_step(p, (size_t)i, cfg, tables);
+    });
 }

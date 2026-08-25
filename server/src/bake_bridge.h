@@ -36,10 +36,17 @@ public:
     bool set_param(const std::string& node, const std::string& name,
                    double value, std::string& err);
 
+    // 通用值版本(JSON 标量:数字/布尔/枚举字符串)
+    bool set_param_value(const std::string& node, const std::string& name,
+                         const std::string& json_value, std::string& err);
+
     uint64_t graph_version();
 
     // 求值并烘焙单个命名输出槽位(B/E/drag/...)
     std::optional<BakedField> bake(const std::string& slot, std::string& err);
+
+    // 节点类型描述(前端编辑器面板):JSON 数组
+    bool describe_types(std::string& out_json, std::string& err);
 
 private:
     struct Impl;
