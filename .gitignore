@@ -34,3 +34,7 @@ presets.json
 Thumbs.db
 .vscode/
 .idea/
+
+# C++ 构建产物
+*.obj
+server/build/
