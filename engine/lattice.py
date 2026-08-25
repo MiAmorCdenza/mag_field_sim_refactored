@@ -61,6 +61,13 @@ AXIS_PRESETS = {
     # z 轴:±10 Re 内 0.2 Re,覆盖整条磁尾电流片
     "z_fine": dict(vmin=-45.0, vmax=45.0, vcenter=0.0,
                    inner_halfwidth=10.0, inner_dx=0.2, total_points=128),
+    # ---- tiny(开发/集成测试:烘焙秒级)----
+    "x_tiny": dict(vmin=-15.0, vmax=10.0, vcenter=0.0,
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=32),
+    "y_tiny": dict(vmin=-12.0, vmax=12.0, vcenter=0.0,
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=28),
+    "z_tiny": dict(vmin=-12.0, vmax=12.0, vcenter=0.0,
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=28),
 }
 
 # 点阵预设:名字 -> {x/y/z: 轴预设名}
@@ -68,6 +75,7 @@ LATTICE_PRESETS = {
     "legacy": dict(x="x_coarse", y="y_coarse", z="z_coarse"),
     "coarse": dict(x="x_coarse", y="y_coarse", z="z_coarse"),
     "fine":   dict(x="x_fine", y="y_fine", z="z_fine"),
+    "tiny":   dict(x="x_tiny", y="y_tiny", z="z_tiny"),
 }
 
 

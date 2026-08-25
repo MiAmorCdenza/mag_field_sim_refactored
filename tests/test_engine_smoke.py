@@ -49,6 +49,32 @@ class AddNode(Node):
         return {"sum": a.data + b.data}
 
 
+@register_node(
+    type="test_field_passthrough",
+    inputs={},
+    outputs={"field": "vector_field"},
+)
+class FieldPassthroughNode(Node):
+    """回归:节点直接返回 Field(真实场节点形态)——引擎必须赋新 id。"""
+
+    def compute(self):
+        lat = self.lattice
+        data = np.zeros((lat.nx, lat.ny, lat.nz, 3), dtype=np.float64)
+        return {"field": Field("vector", data, lat)}  # 无 id
+
+
+def test_field_id_assigned():
+    """节点返回裸 Field 时,引擎应克隆并赋新 id(否则缓存永不失效)。"""
+    g = make_graph()
+    g.add_node("raw", "test_field_passthrough")
+    g.declare_output("R", "raw", "field")
+    id1 = g.evaluate(["R"])["R"].id
+    assert id1 is not None, "Field id 必须由引擎分配"
+    id2 = g.evaluate(["R"])["R"].id
+    assert id2 == id1, "缓存命中返回同一 id"
+    print("✓ 节点返回 Field 时 id 由引擎分配")
+
+
 def make_graph():
     reg = Registry([])  # 空插件目录,类型已在上面程序化注册
     reg.scan()          # scan 会吸收 _REGISTERED 中的程序化注册
@@ -131,4 +157,5 @@ if __name__ == "__main__":
     test_cycle_rejected()
     test_unknown_type_rejected()
     test_bake_format()
+    test_field_id_assigned()
     print("\n全部冒烟测试通过 ✅")

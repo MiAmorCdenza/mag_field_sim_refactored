@@ -286,7 +286,9 @@ class Graph:
             return coerce_scalar(otype, value)
         if otype in FIELD_TYPES:
             if isinstance(value, Field):
-                return value
+                # 节点直接返回的 Field:克隆并赋新 id(内容寻址缓存的关键)
+                return Field(value.kind, value.data, value.lattice,
+                             field_id=None if seq is None else next(seq))
             arr = np.asarray(value, dtype=np.float64)
             expect = (lattice.nx, lattice.ny, lattice.nz)
             if otype == "vector_field":
