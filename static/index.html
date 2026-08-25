@@ -43,6 +43,21 @@
     #main { flex: 1; display: flex; min-height: 0; }
     #editor-wrap { flex: 1; position: relative; border-right: 1px solid var(--border); }
     #editor-canvas { width: 100%; height: 100%; }
+    #palette {
+        position: absolute; top: 10px; left: 12px; width: 280px; max-height: 60%;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+        display: flex; flex-direction: column; z-index: 100; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+    }
+    #palette.hidden { display: none; }
+    #palette-filter { margin: 8px; padding: 5px 8px; background: #21262d; color: var(--text);
+        border: 1px solid var(--border); border-radius: 5px; font-size: 0.75rem; }
+    #palette-list { overflow-y: auto; }
+    .palette-item {
+        display: block; width: 100%; text-align: left; background: none; border: none;
+        color: var(--text); padding: 7px 12px; font-size: 0.75rem; cursor: pointer;
+        border-top: 1px solid rgba(255,255,255,0.04);
+    }
+    .palette-item:hover { background: #21262d; color: var(--accent); }
     #right { flex: 0 0 420px; display: flex; flex-direction: column; }
     #viewport-wrap { flex: 1; position: relative; border-bottom: 1px solid var(--border); min-height: 240px; }
     #viewport { position: absolute; inset: 0; }
@@ -86,7 +101,13 @@
     </div>
 </div>
 <div id="main">
-    <div id="editor-wrap"><canvas id="editor-canvas"></canvas></div>
+    <div id="editor-wrap">
+        <canvas id="editor-canvas"></canvas>
+        <div id="palette" class="hidden">
+            <input id="palette-filter" placeholder="搜索节点类型...">
+            <div id="palette-list"></div>
+        </div>
+    </div>
     <div id="right">
         <div id="viewport-wrap"><div id="viewport"></div></div>
         <div id="props">

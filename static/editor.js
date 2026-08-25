@@ -14,12 +14,29 @@ window.editor = (function () {
     const specByType = {};
 
     const graph = new LGraph();
-    const canvas = new LGraphCanvas("#editor-canvas", graph);
+    const canvasEl = document.getElementById("editor-canvas");
+    // 画布背板尺寸 = 元素实际尺寸(否则默认 300×150 被 CSS 拉伸 → 节点巨大)
+    if (canvasEl.clientWidth > 0 && canvasEl.clientHeight > 0) {
+        canvasEl.width = canvasEl.clientWidth;
+        canvasEl.height = canvasEl.clientHeight;
+    }
+    const canvas = new LGraphCanvas(canvasEl, graph);
     canvas.background_image = "";
+    window.addEventListener("resize", () => {
+        canvasEl.width = canvasEl.clientWidth;
+        canvasEl.height = canvasEl.clientHeight;
+        if (typeof canvas.resize === "function") canvas.resize();
+        canvas.setDirty(true, true);
+    });
 
     // ---------- 节点类型注册 ----------
     function makeNodeClass(spec) {
-        function T() {
+        function T(title) {
+            // v0.4 LiteGraph 创建实例时不会调用基类构造器,必须显式初始化:
+            // 否则 this.flags/inputs/outputs/properties 均为 undefined,
+            // 绘制循环读 node.flags.collapsed 每帧抛错、节点永不渲染。
+            LGraphNode.call(this, title || "");
+            this.properties = {};
             for (const [pname, port] of Object.entries(spec.inputs)) {
                 this.addInput(pname, TYPE_COLORS[port.ptype] || "#888");
                 this.properties["in:" + pname] = port.default;
@@ -83,32 +100,37 @@ window.editor = (function () {
     }
 
     function loadGraph(doc) {
-        graph.clear();
-        const idToNode = {};
-        for (const nd of doc.nodes) {
-            const cls = LiteGraph.registered_node_types[nd.type];
-            if (!cls) { console.warn("未知节点类型:", nd.type); continue; }
-            const node = new cls();
-            // 参数与输入默认值
-            const props = Object.assign({}, nd.params || {});
-            for (const [k, v] of Object.entries(nd.input_defaults || {})) props["in:" + k] = v;
-            props.spec_type = nd.type;
-            node.properties = props;
-            node.pos = nd.pos || [0, 0];
-            graph.add(node);
-            idToNode[nd.id] = node;
+        try {
+            graph.clear();
+            const idToNode = {};
+            for (const nd of doc.nodes) {
+                const cls = LiteGraph.registered_node_types[nd.type];
+                if (!cls) { console.warn("未知节点类型:", nd.type); continue; }
+                const node = new cls();
+                // 参数与输入默认值
+                const props = Object.assign({}, nd.params || {});
+                for (const [k, v] of Object.entries(nd.input_defaults || {})) props["in:" + k] = v;
+                props.spec_type = nd.type;
+                node.properties = props;
+                node.pos = nd.pos || [0, 0];
+                graph.add(node);
+                idToNode[nd.id] = node;
+            }
+            for (const e of doc.edges || []) {
+                const from = idToNode[e.from[0]];
+                const to = idToNode[e.to[0]];
+                if (!from || !to) continue;
+                const oi = from.outputs.findIndex(o => o.name === e.from[1]);
+                const ii = to.inputs.findIndex(i => i.name === e.to[1]);
+                if (oi >= 0 && ii >= 0) from.connect(oi, to, ii);
+            }
+            document.getElementById("outputs-json").value =
+                JSON.stringify(doc.outputs || {}, null, 2);
+            canvas.setDirty(true, true);
+        } catch (err) {
+            window.toast("loadGraph 错误: " + err.message + "\n" + (err.stack || ""));
+            console.error(err);
         }
-        for (const e of doc.edges || []) {
-            const from = idToNode[e.from[0]];
-            const to = idToNode[e.to[0]];
-            if (!from || !to) continue;
-            const oi = from.outputs.findIndex(o => o.name === e.from[1]);
-            const ii = to.inputs.findIndex(i => i.name === e.to[1]);
-            if (oi >= 0 && ii >= 0) from.connect(oi, to, ii);
-        }
-        document.getElementById("outputs-json").value =
-            JSON.stringify(doc.outputs || {}, null, 2);
-        canvas.setDirty(true, true);
     }
 
     // ---------- 属性面板 ----------
@@ -205,8 +227,51 @@ window.editor = (function () {
     canvas.onNodeSelected = (node) => { selectedNode = node; renderProps(node); };
     canvas.onNodeDeselected = () => { selectedNode = null; renderProps(null); };
 
+    // ---------- 节点面板(v0.4 LiteGraph 无内置 showSearchTypes) ----------
+    let paletteVisible = false;
+
+    function renderPalette(filter) {
+        const list = document.getElementById("palette-list");
+        list.innerHTML = "";
+        const kw = (filter || "").trim().toLowerCase();
+        for (const spec of registry) {
+            const hay = (spec.name + " " + spec.type + " " + spec.category).toLowerCase();
+            if (kw && !hay.includes(kw)) continue;
+            const item = document.createElement("button");
+            item.className = "palette-item";
+            item.textContent = `${spec.icon || "⬡"} ${spec.name} · ${spec.category}`;
+            item.onclick = () => {
+                hidePalette();
+                const cls = LiteGraph.registered_node_types[spec.type];
+                if (!cls) return;
+                const node = new cls();
+                const cx = canvas.ds.offset[0] + canvas.ds.scale * (canvas.canvas.width / 2);
+                const cy = canvas.ds.offset[1] + canvas.ds.scale * (canvas.canvas.height / 2);
+                node.pos = [cx - 70, cy - 20];
+                graph.add(node);
+                canvas.setDirty(true, true);
+                window.toast(`已添加节点: ${spec.name}`);
+            };
+            list.appendChild(item);
+        }
+    }
+
+    function showPalette() {
+        paletteVisible = true;
+        document.getElementById("palette").classList.remove("hidden");
+        document.getElementById("palette-filter").value = "";
+        renderPalette("");
+        document.getElementById("palette-filter").focus();
+    }
+    function hidePalette() {
+        paletteVisible = false;
+        document.getElementById("palette").classList.add("hidden");
+    }
+
     // ---------- 事件绑定 ----------
-    document.getElementById("btn-add-node").onclick = () => canvas.showSearchTypes();
+    document.getElementById("btn-add-node").onclick = showPalette;
+    document.getElementById("palette-filter").addEventListener("input",
+        (e) => renderPalette(e.target.value));
     document.getElementById("btn-upload").onclick = () => window.protocol.uploadGraph(exportGraph());
     document.getElementById("btn-reset").onclick = () => window.protocol.resetToServer();
     document.getElementById("btn-respawn").onclick = () => window.protocol.respawn();

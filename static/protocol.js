@@ -28,6 +28,14 @@ window.protocol = (function () {
         document.getElementById("ptc-input").value = n;
     }
 
+    // ---- 全局错误可见化(调试) ----
+    window.onerror = function (msg, src, line, col) {
+        try {
+            window.toast("JS 错误: " + msg + " @" + (src || "").split("/").pop() + ":" + line);
+            document.title = "ERR: " + msg;
+        } catch (e) { /* ignore */ }
+    };
+
     // ---- 启动:拉取节点注册表 ----
     async function boot() {
         try {
