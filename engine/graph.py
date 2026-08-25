@@ -254,11 +254,11 @@ class Graph:
         if hit is not None and hit[0] == key:
             return hit[1]
 
-        # 3) 广播(标量 → 标量场,在键计算之后)
+        # 3) 广播(标量 → 标量场,在键计算之后;None 表示可选场未连接)
         inputs = {}
         for pname, p in spec["inputs"].items():
             v = raw_inputs[pname]
-            if p.ptype in FIELD_TYPES and not isinstance(v, Field):
+            if p.ptype in FIELD_TYPES and v is not None and not isinstance(v, Field):
                 v = self._broadcast(v, p.ptype, self._node_lattice(node_id))
             inputs[pname] = v
 

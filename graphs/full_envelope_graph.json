@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "lattice": {"preset": "coarse"},
+  "nodes": [
+    {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}, "pos": [60, 420]},
+    {"id": "day", "type": "day_source", "params": {"day": 172.0}, "pos": [60, 120]},
+    {"id": "t89", "type": "t89", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [300, 220]},
+    {"id": "tail", "type": "tail", "params": {"model": "flaring"}, "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [300, 420]},
+    {"id": "dipole", "type": "dipole", "input_defaults": {"ps": 0.5}, "pos": [300, 60]},
+    {"id": "imf", "type": "imf_source", "params": {"polarity": -1, "parker_custom": true, "parker_angle": 40.0}, "input_defaults": {"kp": 2.0}, "pos": [300, 560]},
+    {"id": "internal", "type": "internal_blend", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [520, 320]},
+    {"id": "mp", "type": "magnetopause", "params": {"mp_model": 2}, "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [740, 220]},
+    {"id": "efield", "type": "convection_corotation", "params": {"multiplier": 1.0}, "pos": [940, 120]},
+    {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}, "pos": [940, 320]}
+  ],
+  "edges": [
+    {"from": ["kp", "kp"], "to": ["t89", "kp"]},
+    {"from": ["kp", "kp"], "to": ["tail", "kp"]},
+    {"from": ["kp", "kp"], "to": ["imf", "kp"]},
+    {"from": ["day", "ps"], "to": ["t89", "ps"]},
+    {"from": ["day", "ps"], "to": ["tail", "ps"]},
+    {"from": ["day", "ps"], "to": ["dipole", "ps"]},
+    {"from": ["t89", "field"], "to": ["internal", "base"]},
+    {"from": ["tail", "field"], "to": ["internal", "tail"]},
+    {"from": ["internal", "field"], "to": ["mp", "internal"]},
+    {"from": ["dipole", "field"], "to": ["mp", "dipole"]},
+    {"from": ["imf", "field"], "to": ["mp", "imf"]},
+    {"from": ["mp", "field"], "to": ["efield", "b"]}
+  ],
+  "outputs": {
+    "B": ["mp", "field"],
+    "E": ["efield", "field"],
+    "drag": ["drag", "coef"]
+  }
+}

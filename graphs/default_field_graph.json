@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "lattice": {"preset": "coarse"},
+  "nodes": [
+    {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}, "pos": [80, 260]},
+    {"id": "day", "type": "day_source", "params": {"day": 172.0}, "pos": [80, 120]},
+    {"id": "t89", "type": "t89", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [300, 220]},
+    {"id": "blend", "type": "tail_blend", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [520, 220]},
+    {"id": "mp", "type": "magnetopause", "params": {"mp_model": 0}, "pos": [720, 220]}
+  ],
+  "edges": [
+    {"from": ["kp", "kp"], "to": ["t89", "kp"]},
+    {"from": ["day", "ps"], "to": ["t89", "ps"]},
+    {"from": ["t89", "field"], "to": ["blend", "base"]},
+    {"from": ["blend", "field"], "to": ["mp", "internal"]}
+  ],
+  "outputs": {
+    "B": ["mp", "field"]
+  }
+}
