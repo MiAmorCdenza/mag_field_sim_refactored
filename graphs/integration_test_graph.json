@@ -2,16 +2,23 @@
   "version": 1,
   "lattice": {"preset": "tiny"},
   "nodes": [
-    {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}, "pos": [60, 420]},
-    {"id": "day", "type": "day_source", "params": {"day": 172.0}, "pos": [60, 120]},
-    {"id": "t89", "type": "t89", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [300, 220]},
-    {"id": "tail", "type": "tail", "params": {"model": "flaring"}, "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [300, 420]},
-    {"id": "dipole", "type": "dipole", "input_defaults": {"ps": 0.5}, "pos": [300, 60]},
-    {"id": "imf", "type": "imf_source", "params": {"polarity": -1, "parker_custom": true, "parker_angle": 40.0}, "input_defaults": {"kp": 2.0}, "pos": [300, 560]},
-    {"id": "internal", "type": "internal_blend", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [520, 320]},
-    {"id": "mp", "type": "magnetopause", "params": {"mp_model": 2}, "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [740, 220]},
-    {"id": "efield", "type": "convection_corotation", "params": {"multiplier": 1.0}, "pos": [940, 120]},
-    {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}, "pos": [940, 320]}
+    {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}},
+    {"id": "day", "type": "day_source", "params": {"day": 172.0}},
+    {"id": "t89", "type": "t89", "input_defaults": {"kp": 2.0, "ps": 0.5}},
+    {"id": "tail", "type": "tail", "params": {"model": "flaring"}, "input_defaults": {"kp": 2.0, "ps": 0.5}},
+    {"id": "dipole", "type": "dipole", "input_defaults": {"ps": 0.5}},
+    {"id": "imf", "type": "imf_source", "params": {"polarity": -1, "parker_custom": true, "parker_angle": 40.0}, "input_defaults": {"kp": 2.0}},
+    {"id": "internal", "type": "internal_blend", "input_defaults": {"kp": 2.0, "ps": 0.5}},
+    {"id": "mp", "type": "magnetopause", "params": {"mp_model": 2}, "input_defaults": {"kp": 2.0, "ps": 0.5}},
+    {"id": "conv", "type": "convection", "params": {"multiplier": 1.0}},
+    {"id": "corot", "type": "corotation"},
+    {"id": "shield", "type": "volland_shield", "params": {"r0": 4.0}},
+    {"id": "emul", "type": "mul"},
+    {"id": "eadd", "type": "add"},
+    {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}},
+    {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
+    {"id": "oe", "type": "output_slot", "params": {"slot": "E"}},
+    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -25,11 +32,14 @@
     {"from": ["internal", "field"], "to": ["mp", "internal"]},
     {"from": ["dipole", "field"], "to": ["mp", "dipole"]},
     {"from": ["imf", "field"], "to": ["mp", "imf"]},
-    {"from": ["mp", "field"], "to": ["efield", "b"]}
+    {"from": ["mp", "field"], "to": ["corot", "b"]},
+    {"from": ["conv", "field"], "to": ["emul", "a"]},
+    {"from": ["shield", "coef"], "to": ["emul", "w"]},
+    {"from": ["corot", "field"], "to": ["eadd", "a"]},
+    {"from": ["emul", "field"], "to": ["eadd", "b"]},
+    {"from": ["mp", "field"], "to": ["ob", "field"]},
+    {"from": ["eadd", "field"], "to": ["oe", "field"]},
+    {"from": ["drag", "coef"], "to": ["od", "field"]}
   ],
-  "outputs": {
-    "B": ["mp", "field"],
-    "E": ["efield", "field"],
-    "drag": ["drag", "coef"]
-  }
+  "outputs": {}
 }

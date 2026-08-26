@@ -48,7 +48,8 @@ def make_registry():
     types = reg.list_types()
     need = ["kp_source", "day_source", "imf_source", "dipole", "t89",
             "tail", "tail_blend", "internal_blend", "magnetopause",
-            "convection_corotation", "drag_layered"]
+            "convection", "corotation", "volland_shield", "mul", "add",
+            "drag_layered", "output_slot"]
     missing = [t for t in need if t not in types]
     assert not missing, f"注册表缺节点: {missing}"
     print(f"✓ 注册表加载 {len(types)} 种节点")
@@ -154,10 +155,84 @@ def test_default_graph_json():
     print("✓ 默认图 JSON 加载与烘焙正常")
 
 
+def test_e_decomposition():
+    """E 场原子分解:add(corotation, mul(convection, shield)) 与旧复合公式逐位一致。
+
+    旧公式(legacy efield_model=1):E = (0,5e-6·shielding,0) - (Ω×r)×(B/31200),
+    其中 shielding = (r/4)² (0.1<r<4) 否则 1。
+    """
+    reg = make_registry()
+    g = Graph(reg, diag_lattice())
+    g.add_node("kp", "kp_source", {"kp": KP})
+    g.add_node("t89", "t89", input_defaults={"kp": KP, "ps": PS})
+    g.connect("kp", "kp", "t89", "kp")
+    g.add_node("tail", "tail", {"model": "flaring"}, input_defaults={"kp": KP, "ps": PS})
+    g.add_node("dipole", "dipole", input_defaults={"ps": PS})
+    g.add_node("imf", "imf_source",
+               {"parker_custom": True, "parker_angle": 40.0, "polarity": -1},
+               input_defaults={"kp": KP})
+    g.add_node("internal", "internal_blend", input_defaults={"kp": KP, "ps": PS})
+    g.add_node("mp", "magnetopause", {"mp_model": 2}, input_defaults={"kp": KP, "ps": PS})
+    g.connect("t89", "field", "internal", "base")
+    g.connect("tail", "field", "internal", "tail")
+    g.connect("internal", "field", "mp", "internal")
+    g.connect("dipole", "field", "mp", "dipole")
+    g.connect("imf", "field", "mp", "imf")
+
+    # E 原子链:conv × shield + corot
+    g.add_node("conv", "convection", {"multiplier": 1.0})
+    g.add_node("corot", "corotation")
+    g.add_node("shield", "volland_shield", {"r0": 4.0})
+    g.add_node("emul", "mul")
+    g.add_node("eadd", "add")
+    g.connect("mp", "field", "corot", "b")
+    g.connect("conv", "field", "emul", "a")
+    g.connect("shield", "coef", "emul", "w")
+    g.connect("corot", "field", "eadd", "a")
+    g.connect("emul", "field", "eadd", "b")
+    g.declare_output("B", "mp", "field")
+    g.declare_output("E", "eadd", "field")
+
+    baked = g.bake(["B", "E"])
+    lat = g.lattice
+    bx = np.asarray(baked["B"]["bx"]).reshape(lat.nx, lat.ny, lat.nz)
+    by = np.asarray(baked["B"]["by"]).reshape(lat.nx, lat.ny, lat.nz)
+    bz = np.asarray(baked["B"]["bz"]).reshape(lat.nx, lat.ny, lat.nz)
+    ex = np.asarray(baked["E"]["bx"]).reshape(lat.nx, lat.ny, lat.nz)
+    ey = np.asarray(baked["E"]["by"]).reshape(lat.nx, lat.ny, lat.nz)
+    ez = np.asarray(baked["E"]["bz"]).reshape(lat.nx, lat.ny, lat.nz)
+
+    omega = 7.27e-5
+    scale = 1.0 / 31200.0
+    max_d = 0.0
+    for pt in DIAG_POINTS:
+        i = int(np.searchsorted(lat.xs, pt["x"]))
+        j = int(np.searchsorted(lat.ys, pt["y"]))
+        k = int(np.searchsorted(lat.zs, pt["z"]))
+        x, y, z = pt["x"], pt["y"], pt["z"]
+        r = np.sqrt(x * x + y * y + z * z)
+        # 共转:-(Ω×r)×B_norm
+        vx, vy, vz = -omega * y, omega * x, 0.0
+        bxn, byn, bzn = bx[i, j, k] * scale, by[i, j, k] * scale, bz[i, j, k] * scale
+        cx = -(vy * bzn - vz * byn)
+        cy = -(vz * bxn - vx * bzn)
+        cz = -(vx * byn - vy * bxn)
+        # 屏蔽对流
+        shielding = (r / 4.0) ** 2 if (0.1 < r < 4.0) else 1.0
+        ref = (cx, cy + 5.0e-6 * shielding, cz)
+        for got, want in ((ex[i, j, k], ref[0]), (ey[i, j, k], ref[1]),
+                          (ez[i, j, k], ref[2])):
+            max_d = max(max_d, abs(got - want))
+            assert abs(got - want) < 1e-12, (
+                f"E({x},{y},{z}): graph={got} legacy={want}")
+    print(f"✓ E 原子分解与旧复合公式一致(max|Δ|={max_d:.2e})")
+
+
 if __name__ == "__main__":
     compare("A")
     compare("B")
     compare("C")
     compare("D")
     test_default_graph_json()
+    test_e_decomposition()
     print("\n全部场节点对照验证通过 ✅")
