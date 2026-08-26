@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from engine import register_node, Node, Port, Param
+from engine import register_node, Node, Port, Param, GraphError
 
 
 @register_node(
@@ -22,4 +22,8 @@ class OutputSlotNode(Node):
     """场链终端:输入透传为命名输出槽。"""
 
     def compute(self, field):
+        if field is None:
+            raise GraphError(
+                f"输出槽「{self.params.get('slot', '?')}」未连接场源:"
+                f"请把上游场的输出端口连线到本节点的 field 输入")
         return {"out": field}

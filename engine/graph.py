@@ -395,6 +395,10 @@ class Graph:
         """
         result = {}
         for name, val in self.evaluate(output_names).items():
+            if val is None:
+                raise GraphError(
+                    f"输出槽「{name}」无有效值:检查对应的 output_slot "
+                    f"节点是否已连线场源")
             if isinstance(val, Field):
                 lat = val.lattice
                 base = {"xs": lat.xs.tolist(), "ys": lat.ys.tolist(),

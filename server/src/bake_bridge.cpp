@@ -11,6 +11,28 @@ struct BakeBridge::Impl {
     py::object graph;
 };
 
+namespace {
+// 异常详情:pybind 异常带完整回溯;普通异常退回 C++ what()
+// 注意:操作任何 Python 对象必须持 GIL(此处处于 catch 中,try 块的
+// gil_scoped_acquire 已随栈展开销毁,必须重新获取)
+std::string py_error_detail(const std::exception& e) {
+    if (const auto* pe = dynamic_cast<const py::error_already_set*>(&e)) {
+        std::string s = pe->what();
+        try {
+            py::gil_scoped_acquire g;
+            std::string t = py::str(pe->trace()).cast<std::string>();
+            if (!t.empty()) {
+                s += "\n";
+                s += t;
+            }
+        } catch (...) {
+        }
+        return s;
+    }
+    return e.what();
+}
+}  // namespace
+
 BakeBridge::BakeBridge() = default;
 BakeBridge::~BakeBridge() = default;
 
@@ -30,7 +52,7 @@ bool BakeBridge::init(const std::string& root, std::string& err) {
         py::module_::import("geopack.t04");
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return false;
     }
 }
@@ -53,7 +75,7 @@ bool BakeBridge::load_graph(const std::string& json, std::string& err) {
         impl_->graph.attr("load_json")(doc);
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return false;
     }
 }
@@ -72,7 +94,7 @@ bool BakeBridge::set_param_value(const std::string& node, const std::string& nam
         impl_->graph.attr("set_param")(node, name, v);
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return false;
     }
 }
@@ -90,18 +112,7 @@ bool BakeBridge::describe_types(std::string& out_json, std::string& err) {
         out_json = json_mod.attr("dumps")(desc).cast<std::string>();
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
-        return false;
-    }
-}
-
-bool BakeBridge::rescan(std::string& err) {
-    try {
-        py::gil_scoped_acquire g;
-        impl_->graph.attr("registry").attr("scan")();
-        return true;
-    } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return false;
     }
 }
@@ -136,7 +147,7 @@ std::optional<BakedField> BakeBridge::bake(const std::string& slot, std::string&
         }
         return f;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return std::nullopt;
     }
 }
@@ -148,7 +159,7 @@ bool BakeBridge::declared_outputs(std::vector<std::string>& slots, std::string& 
         for (auto k : py::list(keys)) slots.push_back(k.cast<std::string>());
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
         return false;
     }
 }
@@ -162,7 +173,18 @@ bool BakeBridge::graph_json(std::string& out_json, std::string& err) {
         ).cast<std::string>();
         return true;
     } catch (const std::exception& e) {
-        err = e.what();
+        err = py_error_detail(e);
+        return false;
+    }
+}
+
+bool BakeBridge::rescan(std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        impl_->graph.attr("registry").attr("scan")();
+        return true;
+    } catch (const std::exception& e) {
+        err = py_error_detail(e);
         return false;
     }
 }
