@@ -130,6 +130,12 @@ window.editor = (function () {
             }
             document.getElementById("outputs-json").value =
                 JSON.stringify(doc.outputs || {}, null, 2);
+            // 全部节点缺位置时(如内置默认图)自动做层次化排布
+            if (doc.nodes.length &&
+                doc.nodes.every(nd => !nd.pos ||
+                    (nd.pos[0] === 0 && nd.pos[1] === 0))) {
+                autoLayout();
+            }
             canvas.setDirty(true, true);
         } catch (err) {
             window.toast("loadGraph 错误: " + err.message + "\n" + (err.stack || ""));
@@ -272,8 +278,70 @@ window.editor = (function () {
         document.getElementById("palette").classList.add("hidden");
     }
 
+    // ---------- 层次化自动排布(与引擎同算法) ----------
+    function autoLayout() {
+        const gapX = 240, gapY = 110;
+        const nodes = graph._nodes;
+        if (!nodes.length) return;
+        const indeg = {}, adj = {};
+        nodes.forEach(n => { indeg[n.id] = 0; adj[n.id] = []; });
+        for (const link of Object.values(graph.links || {})) {
+            adj[link.origin_id].push(link.target_id);
+            indeg[link.target_id]++;
+        }
+        const depth = {};
+        const queue = nodes.filter(n => indeg[n.id] === 0);
+        queue.forEach(n => { depth[n.id] = 0; });
+        while (queue.length) {
+            const n = queue.shift();
+            for (const m of adj[n.id]) {
+                depth[m] = Math.max(depth[m] ?? -1, depth[n.id] + 1);
+                if (--indeg[m] === 0) queue.push(nodes.find(x => x.id === m));
+            }
+        }
+        nodes.forEach(n => { depth[n.id] = depth[n.id] ?? 0; });
+        // 汇节点(无下游)统一钉到最右列:终端对齐
+        const sinks = nodes.filter(n => !adj[n.id].length);
+        if (sinks.length) {
+            const maxd = Math.max(...Object.values(depth));
+            sinks.forEach(n => { depth[n.id] = maxd; });
+        }
+        const cols = {};
+        nodes.forEach(n => { (cols[depth[n.id]] ||= []).push(n); });
+        for (const d in cols) {
+            cols[d].sort((a, b) => {
+                const ups = x => Object.values(graph.links || {})
+                    .filter(l => l.target_id === x.id);
+                const bary = x => {
+                    const u = ups(x);
+                    return u.length
+                        ? u.reduce((s, l) => s + depth[l.origin_id], 0) / u.length
+                        : -1;
+                };
+                return bary(a) - bary(b);
+            });
+        }
+        const connected = new Set();
+        for (const l of Object.values(graph.links || {})) {
+            connected.add(l.origin_id); connected.add(l.target_id);
+        }
+        const orphans = nodes.filter(n => !connected.has(n.id));
+        const maxCol = Math.max(1, ...Object.values(cols).map(c => c.length));
+        let x = 0;
+        for (const d of Object.keys(cols).sort((a, b) => a - b)) {
+            const col = cols[d];
+            const y0 = 60 + ((maxCol - col.length) / 2) * gapY;
+            col.forEach((n, i) => { n.pos = [x, y0 + i * gapY]; });
+            x += gapX;
+        }
+        orphans.forEach((n, i) => { n.pos = [x, 60 + i * gapY]; });
+        canvas.setDirty(true, true);
+        window.toast("已自动排布(层次化:源在左,输出在右)");
+    }
+
     // ---------- 事件绑定 ----------
     document.getElementById("btn-add-node").onclick = showPalette;
+    document.getElementById("btn-layout").onclick = autoLayout;
     document.getElementById("palette-filter").addEventListener("input",
         (e) => renderPalette(e.target.value));
     document.getElementById("btn-upload").onclick = () => window.protocol.uploadGraph(exportGraph());

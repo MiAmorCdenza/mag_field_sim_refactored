@@ -90,6 +90,9 @@ class Graph:
                 slot = node.params.get("slot", "unnamed")
                 if slot not in self.outputs:
                     self.declare_output(slot, node_id, "out")
+        # 自动排布:存在缺位置的节点(如内置默认图)时做层次化布局
+        if any(nid not in self._pos for nid in self.nodes):
+            self.auto_layout()
         self._check_acyclic()
         self.version += 1
         return self
@@ -178,6 +181,73 @@ class Graph:
         """更换点阵:结构性变化,清空全部缓存。"""
         self.lattice = lattice
         self._cache.clear()
+        self.version += 1
+
+    def auto_layout(self, gap_x=240.0, gap_y=110.0):
+        """层次化自动排布(数据流 DAG 专用,Blender 式):
+        - 拓扑深度定列(源节点在最左,输出节点在最右)
+        - 同列按上游重心排序,减少连线交叉
+        - 孤立节点(无连线)排到最后一列之后
+        """
+        from collections import deque
+
+        indeg = {nid: 0 for nid in self.nodes}
+        adj = {nid: [] for nid in self.nodes}
+        for (dst, _), (src, _) in self.inputs_map.items():
+            adj[src].append(dst)
+            indeg[dst] += 1
+
+        depth = {}
+        queue = deque([n for n, d in indeg.items() if d == 0])
+        for n in queue:
+            depth[n] = 0
+        while queue:
+            n = queue.popleft()
+            for m in adj[n]:
+                depth[m] = max(depth.get(m, -1), depth[n] + 1)
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    queue.append(m)
+        for n in self.nodes:
+            depth.setdefault(n, 0)
+
+        # 汇节点(无下游,如 output_slot)统一钉到最右列:终端对齐
+        sinks = [n for n in self.nodes if not adj[n]]
+        if sinks:
+            maxd = max(depth.values())
+            for n in sinks:
+                depth[n] = maxd
+
+        cols = {}
+        for n, d in depth.items():
+            cols.setdefault(d, []).append(n)
+
+        def sort_key(n):
+            ups = [s for (d2, _), (s, _) in self.inputs_map.items() if d2 == n]
+            if not ups:
+                return (-1.0, 0)  # 源节点置顶
+            return (sum(depth.get(u, 0) for u in ups) / len(ups), 0)
+
+        for d in cols:
+            cols[d].sort(key=sort_key)
+
+        connected = set()
+        for (d2, _), (s, _) in self.inputs_map.items():
+            connected.add(d2)
+            connected.add(s)
+        orphans = [n for n in self.nodes if n not in connected]
+
+        max_col = max((len(c) for c in cols.values()), default=0)
+        x = 0.0
+        for d in sorted(cols):
+            col = cols[d]
+            # 列垂直居中于最高列
+            y0 = 60.0 + (max_col - len(col)) / 2.0 * gap_y
+            for i, n in enumerate(col):
+                self._pos[n] = [x, y0 + i * gap_y]
+            x += gap_x
+        for i, n in enumerate(orphans):
+            self._pos[n] = [x, 60.0 + i * gap_y]
         self.version += 1
 
     def to_json(self):

@@ -104,6 +104,20 @@ def test_output_slot_auto_declare():
     print("✓ output_slot 节点自动推导输出槽")
 
 
+def test_auto_layout():
+    """缺位置的图在 load_json 时自动做层次化排布。"""
+    g = make_graph()  # add_node 未传 pos → _pos 为空
+    doc = g.to_json()
+    g2 = Graph(g.registry, None)
+    g2.load_json(doc)
+    assert all(nid in g2._pos for nid in g2.nodes), "所有节点应有位置"
+    xs = sorted({g2._pos[n][0] for n in g2.nodes})
+    assert len(xs) >= 3, "应形成多个层次列"
+    # 源节点在左,汇节点在右
+    assert g2._pos["c1"][0] < g2._pos["f1"][0] < g2._pos["add"][0]
+    print("✓ 层次化自动排布(源左→汇右)")
+
+
 def make_graph():
     reg = Registry([])  # 空插件目录,类型已在上面程序化注册
     reg.scan()          # scan 会吸收 _REGISTERED 中的程序化注册
@@ -188,4 +202,5 @@ if __name__ == "__main__":
     test_bake_format()
     test_field_id_assigned()
     test_output_slot_auto_declare()
+    test_auto_layout()
     print("\n全部冒烟测试通过 ✅")
