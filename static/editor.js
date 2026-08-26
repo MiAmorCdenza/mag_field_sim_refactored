@@ -84,7 +84,8 @@ window.editor = (function () {
             });
         }
         const edges = [];
-        for (const link of graph.links || []) {
+        // v0.4 的 graph.links 是对象(按链接 id 键控),用 Object.values 迭代
+        for (const link of Object.values(graph.links || {})) {
             const from = graph._nodes.find(x => x.id === link.origin_id);
             const to = graph._nodes.find(x => x.id === link.target_id);
             if (!from || !to) continue;
