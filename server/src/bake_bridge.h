@@ -48,6 +48,12 @@ public:
     // 节点类型描述(前端编辑器面板):JSON 数组
     bool describe_types(std::string& out_json, std::string& err);
 
+    // 图中声明的输出槽位(含 output_slot 节点自动推导)
+    bool declared_outputs(std::vector<std::string>& slots, std::string& err);
+
+    // 当前图序列化(引擎权威快照,含自动推导的输出声明)
+    bool graph_json(std::string& out_json, std::string& err);
+
     // 重新扫描插件目录(热加载新节点:丢文件即注册)
     bool rescan(std::string& err);
 

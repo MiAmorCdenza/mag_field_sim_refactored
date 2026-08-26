@@ -140,3 +140,29 @@ std::optional<BakedField> BakeBridge::bake(const std::string& slot, std::string&
         return std::nullopt;
     }
 }
+
+bool BakeBridge::declared_outputs(std::vector<std::string>& slots, std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        py::object keys = impl_->graph.attr("outputs").attr("keys")();
+        for (auto k : py::list(keys)) slots.push_back(k.cast<std::string>());
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+}
+
+bool BakeBridge::graph_json(std::string& out_json, std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        auto json_mod = py::module_::import("json");
+        out_json = json_mod.attr("dumps")(
+            impl_->graph.attr("to_json")(), py::arg("ensure_ascii") = false
+        ).cast<std::string>();
+        return true;
+    } catch (const std::exception& e) {
+        err = e.what();
+        return false;
+    }
+}

@@ -26,6 +26,8 @@ class GraphError(Exception):
 def _compatible(src_type, dst_type):
     if dst_type == src_type:
         return True
+    if dst_type == "any" or src_type == "any":
+        return True  # 通用透传端口(输出节点等)
     if dst_type in SCALAR_TYPES and src_type in SCALAR_TYPES:
         return True
     if dst_type == "scalar_field" and src_type in SCALAR_TYPES:
@@ -80,6 +82,14 @@ class Graph:
             self.connect(e["from"][0], e["from"][1], e["to"][0], e["to"][1])
         for name, ref in (doc.get("outputs") or {}).items():
             self.declare_output(name, ref[0], ref[1])
+        # 自动推导:图中每个输出角色节点(role="output",如 output_slot)
+        # = 一个命名输出槽(最终渲染环节显式化:Nuke/Blender 式 OutputNode)
+        for node_id, node in self.nodes.items():
+            spec = node.spec()
+            if spec.get("role") == "output" or spec.get("type") == "output_slot":
+                slot = node.params.get("slot", "unnamed")
+                if slot not in self.outputs:
+                    self.declare_output(slot, node_id, "out")
         self._check_acyclic()
         self.version += 1
         return self
@@ -282,6 +292,12 @@ class Graph:
 
     @staticmethod
     def _wrap(value, otype, lattice, seq=None):
+        if otype == "any":
+            # 通用透传:输出节点原样转发(Field 仍赋新 id 以维持缓存语义)
+            if isinstance(value, Field):
+                return Field(value.kind, value.data, value.lattice,
+                             field_id=None if seq is None else next(seq))
+            return value
         if otype in SCALAR_TYPES:
             return coerce_scalar(otype, value)
         if otype in FIELD_TYPES:

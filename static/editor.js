@@ -8,6 +8,7 @@ window.editor = (function () {
         "enum": "#9bd4ff", "string": "#9bd4ff",
         "vector_field": "#ff9b6a", "scalar_field": "#ffd36a",
         "particle_buffer": "#7bef7b", "field_table": "#6ad4ff", "geometry": "#e79bff",
+        "any": "#e6e6ff",
     };
 
     let registry = [];          // /api/nodes 描述数组
@@ -68,12 +69,13 @@ window.editor = (function () {
         const nodes = [];
         const idMap = {};
         for (const n of graph._nodes) {
-            const jsonId = "n" + n.id;
+            // 优先保留原 JSON id(loadGraph 记录);新建节点用 "n"+数字
+            const jsonId = n.properties.json_id || "n" + n.id;
             idMap[n.id] = jsonId;
             const params = {};
             const inputDefaults = {};
             for (const [k, v] of Object.entries(n.properties)) {
-                if (k === "spec_type") continue;
+                if (k === "spec_type" || k === "json_id") continue;
                 if (k.startsWith("in:")) inputDefaults[k.slice(3)] = v;
                 else params[k] = v;
             }
@@ -112,6 +114,7 @@ window.editor = (function () {
                 const props = Object.assign({}, nd.params || {});
                 for (const [k, v] of Object.entries(nd.input_defaults || {})) props["in:" + k] = v;
                 props.spec_type = nd.type;
+                props.json_id = nd.id;  // 保留原图 id,导出时沿用(输出槽引用稳定)
                 node.properties = props;
                 node.pos = nd.pos || [0, 0];
                 graph.add(node);

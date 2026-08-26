@@ -72,7 +72,10 @@ std::string default_graph_json() {
     {"id": "internal", "type": "internal_blend", "input_defaults": {"kp": 2.0, "ps": 0.5}},
     {"id": "mp", "type": "magnetopause", "params": {"mp_model": 2}, "input_defaults": {"kp": 2.0, "ps": 0.5}},
     {"id": "efield", "type": "convection_corotation", "params": {"multiplier": 1.0}},
-    {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}}
+    {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}},
+    {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
+    {"id": "oe", "type": "output_slot", "params": {"slot": "E"}},
+    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -86,9 +89,12 @@ std::string default_graph_json() {
     {"from": ["internal", "field"], "to": ["mp", "internal"]},
     {"from": ["dipole", "field"], "to": ["mp", "dipole"]},
     {"from": ["imf", "field"], "to": ["mp", "imf"]},
-    {"from": ["mp", "field"], "to": ["efield", "b"]}
+    {"from": ["mp", "field"], "to": ["efield", "b"]},
+    {"from": ["mp", "field"], "to": ["ob", "field"]},
+    {"from": ["efield", "field"], "to": ["oe", "field"]},
+    {"from": ["drag", "coef"], "to": ["od", "field"]}
   ],
-  "outputs": {"B": ["mp", "field"], "E": ["efield", "field"], "drag": ["drag", "coef"]}
+  "outputs": {}
 })JSON";
 }
 
@@ -339,10 +345,10 @@ struct ServerApp::Impl {
                 return 1;
             }
             st.graph_version = bridge.graph_version();
+            // 引擎权威快照(含 output_slot 自动推导的输出声明)
+            bridge.graph_json(st.graph_json, err);
+            bridge.declared_outputs(st.slots, err);
         }
-        // 提取声明槽
-        auto doc = json::parse(st.graph_json);
-        for (auto& [k, v] : doc["outputs"].items()) st.slots.push_back(k);
         std::cout << "✅ 初始图加载,槽位: ";
         for (auto& s : st.slots) std::cout << s << " ";
         std::cout << std::endl;
@@ -403,17 +409,21 @@ struct ServerApp::Impl {
                         std::string err;
                         std::vector<std::string> slots;
                         uint64_t ver = 0;
+                        std::string authoritative;
                         {
                             std::lock_guard<std::mutex> g(bridge_m);
                             ok = bridge.load_graph(gjson, err);
-                            if (ok) ver = bridge.graph_version();
+                            if (ok) {
+                                ver = bridge.graph_version();
+                                // 引擎权威快照 + 推导槽位(output_slot 节点)
+                                ok = bridge.graph_json(authoritative, err) &&
+                                     bridge.declared_outputs(slots, err);
+                            }
                         }
                         if (ok) {
-                            for (auto& [k, v] : msg["graph"]["outputs"].items())
-                                slots.push_back(k);
                             {
                                 std::lock_guard<std::mutex> g(st.m);
-                                st.graph_json = gjson;
+                                st.graph_json = authoritative;
                                 st.slots = slots;
                                 st.graph_version = ver;
                             }

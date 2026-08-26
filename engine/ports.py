@@ -12,8 +12,10 @@ SCALAR_TYPES = ("scalar", "int", "bool", "enum", "string")
 FIELD_TYPES = ("vector_field", "scalar_field")
 # 粒子域流(阶段 2 接入)
 STREAM_TYPES = ("particle_buffer", "field_table", "geometry")
+# 通用透传(输出节点等:接受/输出任意类型)
+ANY_TYPES = ("any",)
 
-PORT_TYPES = set(SCALAR_TYPES) | set(FIELD_TYPES) | set(STREAM_TYPES)
+PORT_TYPES = set(SCALAR_TYPES) | set(FIELD_TYPES) | set(STREAM_TYPES) | set(ANY_TYPES)
 
 _SCALAR_CAST = {
     "scalar": float,

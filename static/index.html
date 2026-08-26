@@ -114,9 +114,9 @@
             <div class="panel-title">⚙ 节点属性<span id="props-node" style="float:right;color:var(--dim);"></span></div>
             <div id="props-body"><div class="hint">点击画布中的节点编辑其参数;双击空白处或点「添加节点」放入新节点。</div></div>
             <div class="outputs-row">
-                <div class="panel-title">🔌 输出槽位(JSON)</div>
-                <div class="hint">格式: {"B": ["节点id", "端口"], "E": ["节点id", "端口"]} — 自由声明,C++ 按名订阅</div>
-                <textarea id="outputs-json" spellcheck="false"></textarea>
+                <div class="panel-title">🔌 输出槽位</div>
+                <div class="hint">推荐:用「输出槽(最终节点)」声明输出(连线 + 填 slot 名)。此 JSON 仅作显式覆盖,可留空。</div>
+                <textarea id="outputs-json" spellcheck="false">{}</textarea>
             </div>
         </div>
     </div>

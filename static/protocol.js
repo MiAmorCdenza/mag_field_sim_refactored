@@ -105,7 +105,8 @@ window.protocol = (function () {
     }
 
     function sendParam(specType, node, name, value) {
-        const jsonId = "n" + node.id;
+        // 与 exportGraph 一致:优先原图 id(json_id),否则 n+数字
+        const jsonId = node.properties.json_id || "n" + node.id;
         const key = jsonId + ":" + name;
         clearTimeout(debounceTimers[key]);
         debounceTimers[key] = setTimeout(() => {

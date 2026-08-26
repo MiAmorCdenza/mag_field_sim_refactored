@@ -75,6 +75,35 @@ def test_field_id_assigned():
     print("✓ 节点返回 Field 时 id 由引擎分配")
 
 
+@register_node(
+    type="test_output_slot",
+    role="output",  # 角色标记:引擎据此自动推导输出槽
+    inputs={"field": Port("any", default=None)},
+    outputs={"out": "any"},
+    params={"slot": Param("string", default="B")},
+)
+class TestOutputSlotNode(Node):
+    """透传输出节点(与 nodes/outputs.py 同构)。"""
+
+    def compute(self, field):
+        return {"out": field}
+
+
+def test_output_slot_auto_declare():
+    """output_slot 节点在 load_json 时自动推导为命名输出槽。"""
+    g = make_graph()
+    g.add_node("os", "test_output_slot", {"slot": "B2"})
+    g.connect("add", "sum", "os", "field")
+    doc = g.to_json()
+    g2 = Graph(g.registry, None)
+    g2.load_json(doc)
+    assert "B2" in g2.outputs, "output_slot 应自动声明输出槽"
+    assert g2.outputs["B2"] == ("os", "out")
+    baked = g2.bake(["B2"])
+    assert np.allclose(np.asarray(baked["B2"]["scalar"]), 16.0)
+    print("✓ output_slot 节点自动推导输出槽")
+
+
 def make_graph():
     reg = Registry([])  # 空插件目录,类型已在上面程序化注册
     reg.scan()          # scan 会吸收 _REGISTERED 中的程序化注册
@@ -158,4 +187,5 @@ if __name__ == "__main__":
     test_unknown_type_rejected()
     test_bake_format()
     test_field_id_assigned()
+    test_output_slot_auto_declare()
     print("\n全部冒烟测试通过 ✅")
