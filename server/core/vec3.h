@@ -17,4 +17,5 @@ struct Vec3 {
     }
     double norm() const { return std::sqrt(x * x + y * y + z * z); }
     double norm2() const { return x * x + y * y + z * z; }
+    double abs_sum() const { return std::abs(x) + std::abs(y) + std::abs(z); }
 };

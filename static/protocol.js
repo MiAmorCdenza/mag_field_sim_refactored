@@ -86,7 +86,18 @@ window.protocol = (function () {
         if (typeof e.data === "string") {
             handleText(JSON.parse(e.data));
         } else if (e.data instanceof ArrayBuffer) {
-            window.renderer.updateFrame(e.data);
+            // 二进制帧 → 渲染宿主分发(按帧头 type/kind 路由到订阅渲染项)
+            try {
+                const view = new DataView(e.data);
+                const hlen = view.getUint32(0, true);
+                const header = JSON.parse(new TextDecoder().decode(
+                    new Uint8Array(e.data, 4, hlen)));
+                const kind = header.type === "s" ? "particles"
+                    : (header.kind || header.type || "unknown");
+                window.renderHost && window.renderHost.dispatch(kind, e.data, header);
+            } catch (err) {
+                window.uiLog && window.uiLog("error", "frame_parse", String(err));
+            }
         }
     };
 

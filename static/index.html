@@ -75,6 +75,12 @@
     .node-title { font-weight: 700; margin-bottom: 6px; }
     .outputs-row { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
     #outputs-json { width: 100%; height: 90px; background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-size: 0.72rem; padding: 4px 6px; font-family: Consolas, monospace; }
+    #code-editor { border-top: 1px solid var(--border); padding: 10px 12px; }
+    #code-editor.hidden { display: none; }
+    #code-text { width: 100%; height: 220px; background: #0d1117; color: #9ece6a;
+        border: 1px solid var(--border); border-radius: 5px; font-size: 0.72rem;
+        padding: 6px; font-family: Consolas, monospace; resize: vertical; }
+    .code-btns { display: flex; gap: 6px; margin-top: 6px; }
     #toast {
         position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
         background: #b62324; color: #fff; padding: 8px 18px; border-radius: 8px;
@@ -120,6 +126,15 @@
                 <textarea id="outputs-json" spellcheck="false">{}</textarea>
             </div>
         </div>
+        <div id="code-editor" class="hidden">
+            <div class="panel-title">🖥 渲染项内联代码<span id="code-node" style="float:right;color:var(--dim);"></span></div>
+            <div class="hint">用 registerRenderItem({...}) 编写本渲染项的 JS 实现,「应用」后即时生效;代码随图 JSON 持久化。</div>
+            <textarea id="code-text" spellcheck="false"></textarea>
+            <div class="code-btns">
+                <button id="btn-code-apply" class="primary">▶ 应用</button>
+                <button id="btn-code-reset">↺ 重置为节点存储的代码</button>
+            </div>
+        </div>
     </div>
 </div>
 <div id="toast"></div>
@@ -127,7 +142,9 @@
 <script src="/vendor/litegraph.js"></script>
 <script src="/vendor/three.min.js"></script>
 <script src="/vendor/OrbitControls.js"></script>
-<script src="/renderer.js"></script>
+<script src="/renderer/host.js"></script>
+<script src="/renderer/registry.js"></script>
+<script src="/renderer/items/particles.js"></script>
 <script src="/editor.js"></script>
 <script src="/protocol.js"></script>
 </body>

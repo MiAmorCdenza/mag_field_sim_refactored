@@ -31,6 +31,9 @@ window.editor = (function () {
     });
 
     // ---------- 节点类型注册 ----------
+    // 渲染域节点专属色(右栏渲染管线视觉区分)
+    const RENDER_NODE_COLOR = "#4a3a6a";
+
     function makeNodeClass(spec) {
         function T(title) {
             // v0.4 LiteGraph 创建实例时不会调用基类构造器,必须显式初始化:
@@ -50,6 +53,10 @@ window.editor = (function () {
             }
             this.properties.spec_type = spec.type;
             this._spec = spec;
+            if (spec.domain === "render") {
+                this.color = RENDER_NODE_COLOR;
+                this.bgcolor = "#241d33";
+            }
         }
         T.title = spec.name || spec.type;
         T.desc = spec.category;
@@ -232,6 +239,81 @@ window.editor = (function () {
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
                 }));
         }
+
+        // ---- 渲染节点:内联代码编辑器 + 参数下发 ----
+        const codePanel = document.getElementById("code-editor");
+        if (spec.domain === "render" &&
+            spec.type !== "render_pipeline_start") {
+            codePanel.classList.remove("hidden");
+            const codeEl = document.getElementById("code-text");
+            codeEl.value = node.properties.code || renderItemTemplate(spec);
+            document.getElementById("code-node").textContent =
+                `${node.properties.json_id || "n" + node.id} [${spec.type}]`;
+            // 参数下发到渲染宿主(颜色/可见性/尺寸等)
+            pushRenderParams(node);
+        } else {
+            codePanel.classList.add("hidden");
+        }
+    }
+
+    // 内联渲染项代码模板
+    function renderItemTemplate(spec) {
+        return `// ${spec.name}(内联渲染项插件)
+// 可用:registerRenderItem / THREE / host
+registerRenderItem({
+    id: "${spec.type}",          // 引擎会强制使用节点 id
+    layer: 1,
+    subscribes: [],              // 例: ["geometry:field_lines"]
+    setup(scene, three) {
+        this.three = three;
+        this.group = new three.Group();
+        scene.add(this.group);
+        // 在此创建几何/材质...
+    },
+    onData(frame, meta) {
+        // 数据帧到达时更新
+    },
+    onParam(params) {
+        // 节点参数(颜色/可见性/...)变更
+    },
+    dispose() {
+        this.group.parent && this.group.parent.remove(this.group);
+    },
+});
+`;
+    }
+
+    // 渲染节点参数 → 渲染宿主(按节点 json id 路由)
+    function pushRenderParams(node) {
+        const itemId = node.properties.json_id || "n" + node.id;
+        const params = {};
+        for (const [k, v] of Object.entries(node.properties)) {
+            if (k === "spec_type" || k === "json_id" || k.startsWith("in:")) continue;
+            params[k] = v;
+        }
+        if (window.renderHost) window.renderHost.applyParams(itemId, params);
+    }
+
+    // 内联代码应用
+    function applyInlineCode() {
+        if (!selectedNode) return;
+        const code = document.getElementById("code-text").value;
+        const itemId = selectedNode.properties.json_id || "n" + selectedNode.id;
+        try {
+            window.renderRegistry.compileInline(itemId, code);
+            selectedNode.properties.code = code;
+            pushRenderParams(selectedNode);
+            window.toast("✅ 内联渲染项已应用(随图 JSON 持久化)");
+        } catch (e) {
+            window.toast("❌ 内联代码编译失败: " + e.message);
+        }
+    }
+
+    function resetInlineCode() {
+        if (!selectedNode) return;
+        document.getElementById("code-text").value =
+            selectedNode.properties.code ||
+            renderItemTemplate(selectedNode._spec);
     }
 
     canvas.onNodeSelected = (node) => { selectedNode = node; renderProps(node); };
@@ -283,35 +365,49 @@ window.editor = (function () {
         const gapX = 240, gapY = 110;
         const nodes = graph._nodes;
         if (!nodes.length) return;
-        const indeg = {}, adj = {};
-        nodes.forEach(n => { indeg[n.id] = 0; adj[n.id] = []; });
+        const domainOf = n => n._spec?.domain || "field";
+        const renderNodes = nodes.filter(n => domainOf(n) === "render");
+        const dataNodes = nodes.filter(n => domainOf(n) !== "render");
+
+        const adj = {};
+        nodes.forEach(n => { adj[n.id] = []; });
         for (const link of Object.values(graph.links || {})) {
             adj[link.origin_id].push(link.target_id);
-            indeg[link.target_id]++;
+        }
+
+        // ---- 数据域:拓扑深度定列 ----
+        const indeg = {};
+        dataNodes.forEach(n => { indeg[n.id] = 0; });
+        for (const link of Object.values(graph.links || {})) {
+            if (dataNodes.some(n => n.id === link.origin_id) &&
+                dataNodes.some(n => n.id === link.target_id)) {
+                indeg[link.target_id]++;
+            }
         }
         const depth = {};
-        const queue = nodes.filter(n => indeg[n.id] === 0);
+        const queue = dataNodes.filter(n => indeg[n.id] === 0);
         queue.forEach(n => { depth[n.id] = 0; });
         while (queue.length) {
             const n = queue.shift();
             for (const m of adj[n.id]) {
+                if (!(m in indeg)) continue;
                 depth[m] = Math.max(depth[m] ?? -1, depth[n.id] + 1);
                 if (--indeg[m] === 0) queue.push(nodes.find(x => x.id === m));
             }
         }
-        nodes.forEach(n => { depth[n.id] = depth[n.id] ?? 0; });
+        dataNodes.forEach(n => { depth[n.id] = depth[n.id] ?? 0; });
         // 汇节点(无下游)统一钉到最右列:终端对齐
-        const sinks = nodes.filter(n => !adj[n.id].length);
+        const sinks = dataNodes.filter(n => !adj[n.id].some(m => m in indeg));
         if (sinks.length) {
             const maxd = Math.max(...Object.values(depth));
             sinks.forEach(n => { depth[n.id] = maxd; });
         }
         const cols = {};
-        nodes.forEach(n => { (cols[depth[n.id]] ||= []).push(n); });
+        dataNodes.forEach(n => { (cols[depth[n.id]] ||= []).push(n); });
         for (const d in cols) {
             cols[d].sort((a, b) => {
                 const ups = x => Object.values(graph.links || {})
-                    .filter(l => l.target_id === x.id);
+                    .filter(l => l.target_id === x.id && depth[l.origin_id] !== undefined);
                 const bary = x => {
                     const u = ups(x);
                     return u.length
@@ -325,7 +421,7 @@ window.editor = (function () {
         for (const l of Object.values(graph.links || {})) {
             connected.add(l.origin_id); connected.add(l.target_id);
         }
-        const orphans = nodes.filter(n => !connected.has(n.id));
+        const orphans = dataNodes.filter(n => !connected.has(n.id));
         const maxCol = Math.max(1, ...Object.values(cols).map(c => c.length));
         let x = 0;
         for (const d of Object.keys(cols).sort((a, b) => a - b)) {
@@ -335,13 +431,36 @@ window.editor = (function () {
             x += gapX;
         }
         orphans.forEach((n, i) => { n.pos = [x, 60 + i * gapY]; });
+        if (orphans.length) x += gapX;
+
+        // ---- 渲染域:右侧单列垂直链(起始节点在链顶) ----
+        const chain = [];
+        const seen = new Set();
+        const starts = renderNodes.filter(
+            n => (n._spec?.type || n.properties.spec_type) === "render_pipeline_start");
+        const q = starts.length ? [...starts] : (renderNodes.length ? [renderNodes[0]] : []);
+        while (q.length) {
+            const n = q.shift();
+            if (seen.has(n.id)) continue;
+            seen.add(n.id);
+            chain.push(n);
+            for (const m of adj[n.id]) {
+                if (renderNodes.some(r => r.id === m) && !seen.has(m)) q.push(
+                    renderNodes.find(r => r.id === m));
+            }
+        }
+        renderNodes.forEach(n => { if (!seen.has(n.id)) chain.push(n); });
+        chain.forEach((n, i) => { n.pos = [x, 60 + i * gapY]; });
+
         canvas.setDirty(true, true);
-        window.toast("已自动排布(层次化:源在左,输出在右)");
+        window.toast("已自动排布(场左→粒子中→渲染右,渲染域垂直链)");
     }
 
     // ---------- 事件绑定 ----------
     document.getElementById("btn-add-node").onclick = showPalette;
     document.getElementById("btn-layout").onclick = autoLayout;
+    document.getElementById("btn-code-apply").onclick = applyInlineCode;
+    document.getElementById("btn-code-reset").onclick = resetInlineCode;
     document.getElementById("palette-filter").addEventListener("input",
         (e) => renderPalette(e.target.value));
     document.getElementById("btn-upload").onclick = () => window.protocol.uploadGraph(exportGraph());
