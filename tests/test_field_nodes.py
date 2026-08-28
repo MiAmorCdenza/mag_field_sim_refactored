@@ -16,6 +16,13 @@ sys.path.insert(0, os.path.join(LEGACY_DIR, "models"))
 
 import numpy as np
 
+# 兼容垫片:新版 geopack 将 recalc 等工具移入 geopack.geopack 子模块,
+# 旧管线(legacy python_bridge)使用顶层 API。
+import geopack
+if not hasattr(geopack, "recalc"):
+    from geopack import geopack as _gp
+    geopack.recalc = _gp.recalc
+
 from engine import default_registry, Graph, Lattice
 import python_bridge as legacy  # 旧管线(对照基准)
 

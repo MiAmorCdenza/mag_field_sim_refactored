@@ -41,6 +41,14 @@ bool BakeBridge::init(const std::string& root, std::string& err) {
         impl_ = std::make_unique<Impl>();
         auto sys = py::module_::import("sys");
         sys.attr("path").attr("insert")(0, root);
+        // 优先使用项目 venv 的包(与测试/开发环境一致,避免依赖全局 Python)
+        {
+            auto os_mod = py::module_::import("os");
+            py::object venv_sp = py::str(root + "/.venv/Lib/site-packages");
+            if (py::bool_(os_mod.attr("path").attr("isdir")(venv_sp))) {
+                sys.attr("path").attr("insert")(0, venv_sp);
+            }
+        }
         // 统一 JSON 日志(Python 侧,与 C++ logger 同文件同 schema)
         auto engine_log = py::module_::import("engine.logging");
         engine_log.attr("setup_logging")(
