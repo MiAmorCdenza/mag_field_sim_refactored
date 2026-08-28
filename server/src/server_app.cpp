@@ -19,6 +19,7 @@
 #include "sim_pipeline.h"
 #include "encoder.h"
 #include "../core/logger.h"
+#include "../core/tracer.h"
 
 using json = nlohmann::json;
 
@@ -45,6 +46,7 @@ struct SharedState {
     bool emitter_dirty = false;
     int particle_count = 100;
     uint64_t graph_version = 0;      // 由 WS 线程/主线程维护,仿真线程只读
+    std::string render_bindings_json = "[]";  // 渲染域绑定表(引擎权威)
     EmitterConfig emitter;
     std::string bake_error;
     bool bake_failed = false;
@@ -80,7 +82,12 @@ std::string default_graph_json() {
     {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}},
     {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
     {"id": "oe", "type": "output_slot", "params": {"slot": "E"}},
-    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}}
+    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}},
+    {"id": "rp", "type": "render_pipeline_start"},
+    {"id": "rfl", "type": "render_item_field_lines"},
+    {"id": "rel", "type": "render_item_efield_lines"},
+    {"id": "rpt", "type": "render_item_particles"},
+    {"id": "rdi", "type": "render_item_diagnostics"}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -101,13 +108,51 @@ std::string default_graph_json() {
     {"from": ["emul", "field"], "to": ["eadd", "b"]},
     {"from": ["mp", "field"], "to": ["ob", "field"]},
     {"from": ["eadd", "field"], "to": ["oe", "field"]},
-    {"from": ["drag", "coef"], "to": ["od", "field"]}
+    {"from": ["drag", "coef"], "to": ["od", "field"]},
+    {"from": ["rp", "next"], "to": ["rfl", "prev"]},
+    {"from": ["rfl", "next"], "to": ["rel", "prev"]},
+    {"from": ["rel", "next"], "to": ["rpt", "prev"]},
+    {"from": ["rpt", "next"], "to": ["rdi", "prev"]},
+    {"from": ["ob", "out"], "to": ["rfl", "data"]},
+    {"from": ["oe", "out"], "to": ["rel", "data"]},
+    {"from": ["od", "out"], "to": ["rdi", "data"]}
   ],
   "outputs": {}
 })JSON";
 }
 
 }  // namespace
+
+// 几何帧序列化:[u32 meta_len][JSON meta][每线:u8 class u8 reason u16 n f32xyz×n]
+std::string build_geom_frame(const std::string& kind, const std::string& node_id,
+                             uint64_t seq, const std::string& slot,
+                             const std::vector<std::pair<int, FieldLine>>& lines) {
+    json meta{{"type", "geom"}, {"kind", kind}, {"seq", seq},
+              {"node", node_id}, {"slot", slot}, {"count", lines.size()}};
+    std::string ms = meta.dump();
+    std::string out;
+    out.reserve(4 + ms.size() + lines.size() * 128);
+    uint32_t mlen = (uint32_t)ms.size();
+    out.append((const char*)&mlen, 4);
+    out.append(ms);
+    for (const auto& [cls, line] : lines) {
+        uint8_t c = (uint8_t)cls;
+        uint8_t r = (uint8_t)line.reason;
+        uint16_t n = (uint16_t)std::min<size_t>(line.pts.size(), 0xFFFF);
+        out.append((const char*)&c, 1);
+        out.append((const char*)&r, 1);
+        out.append((const char*)&n, 2);
+        for (size_t i = 0; i < n; ++i) {
+            float fx = (float)line.pts[i].x;
+            float fy = (float)line.pts[i].y;
+            float fz = (float)line.pts[i].z;
+            out.append((const char*)&fx, 4);
+            out.append((const char*)&fy, 4);
+            out.append((const char*)&fz, 4);
+        }
+    }
+    return out;
+}
 
 struct ServerApp::Impl {
     ServerConfig cfg;
@@ -202,6 +247,73 @@ struct ServerApp::Impl {
         }
     }
 
+    // 渲染绑定 → 几何帧(烘焙应用后调用;10~20ms 量级)
+    void run_render_bindings(uint64_t seq) {
+        json binds;
+        try {
+            binds = json::parse(st.render_bindings_json);
+        } catch (...) {
+            return;
+        }
+        json gdoc;
+        try {
+            gdoc = json::parse(st.graph_json);
+        } catch (...) {
+            return;
+        }
+        // (node,port) → 槽位 反向映射
+        std::map<std::pair<std::string, std::string>, std::string> slot_of;
+        for (auto& [sn, ref] : gdoc["outputs"].items())
+            slot_of[{ref[0], ref[1]}] = sn;
+
+        for (const auto& b : binds) {
+            std::string type = b.value("type", "");
+            std::string nid = b.value("node_id", "");
+            json ins = b.value("inputs", json::object());
+            if (!ins.contains("data") || !ins["data"].is_array()) continue;
+            std::string src = ins["data"][0].get<std::string>();
+            std::string sport = ins["data"][1].get<std::string>();
+            auto it = slot_of.find({src, sport});
+            if (it == slot_of.end()) continue;
+            const std::string& slot = it->second;
+            const Table3D* table = nullptr;
+            if (slot == "B") table = &pipeline.b_table;
+            else if (slot == "E") table = &pipeline.e_table;
+            else if (slot == "drag") table = &pipeline.drag_table;
+            if (!table || !table->has_data()) continue;
+            if (type != "render_item_field_lines" && type != "render_item_efield_lines")
+                continue;
+
+            TraceConfig tcfg;
+            json prm = b.value("params", json::object());
+            if (prm.contains("dsmax")) tcfg.dsmax = prm["dsmax"].get<double>();
+            if (prm.contains("err")) tcfg.err = prm["err"].get<double>();
+            tcfg.rlim = std::max(15.0, pipeline.max_range * 0.98);
+
+            SeedSet seeds = build_seeds(SeedConfig{});
+            std::vector<std::pair<int, FieldLine>> lines;
+            auto trace_all = [&](const std::vector<Vec3>& v, int cls) {
+                for (const auto& s : v) {
+                    FieldLine l;
+                    trace_line(*table, s, tcfg, l);
+                    if (l.pts.size() >= 2) lines.push_back({cls, std::move(l)});
+                }
+            };
+            trace_all(seeds.closed, 0);
+            trace_all(seeds.open, 1);
+            trace_all(seeds.solarwind, 2);
+
+            std::string kind =
+                type == "render_item_field_lines" ? "field_lines" : "efield_lines";
+            std::string frame = build_geom_frame(kind, nid, seq, slot, lines);
+            broadcast_bin(frame);
+            MFL("render", "geom_frame", Info, "几何帧已广播",
+                (nlohmann::json{{"kind", kind}, {"node", nid},
+                                {"slot", slot}, {"lines", lines.size()},
+                                {"seq", seq}}));
+        }
+    }
+
     void sim_loop() {
         try {
         auto next_frame = std::chrono::steady_clock::now();
@@ -226,8 +338,11 @@ struct ServerApp::Impl {
                 if (done) {
                     std::string err;
                     for (auto& [slot, field] : *done) pipeline.install_baked(field, err);
-                    broadcast_progress(st.completed_seq, "done");
-                    MFL("bake", "bake_applied", Info, "烘焙结果已应用", (nlohmann::json{{"seq", st.completed_seq}, {"slots", done->size()}}));
+                    uint64_t applied_seq = st.completed_seq;
+                    broadcast_progress(applied_seq, "done");
+                    MFL("bake", "bake_applied", Info, "烘焙结果已应用", (nlohmann::json{{"seq", applied_seq}, {"slots", done->size()}}));
+                    // 渲染绑定:场线/电场线几何帧(烘焙后一次性广播)
+                    run_render_bindings(applied_seq);
                 }
                 if (failed) {
                     broadcast_progress(fseq, "error", ferr);
@@ -356,6 +471,7 @@ struct ServerApp::Impl {
             // 引擎权威快照(含 output_slot 自动推导的输出声明)
             bridge.graph_json(st.graph_json, err);
             bridge.declared_outputs(st.slots, err);
+            bridge.render_bindings(st.render_bindings_json, err);
         }
         MFL("server", "graph_loaded", Info, "初始图加载完成", (nlohmann::json{{"slots", st.slots}, {"version", st.graph_version}}));
 
@@ -416,6 +532,7 @@ struct ServerApp::Impl {
                         std::vector<std::string> slots;
                         uint64_t ver = 0;
                         std::string authoritative;
+                        std::string rb_json;
                         {
                             std::lock_guard<std::mutex> g(bridge_m);
                             ok = bridge.load_graph(gjson, err);
@@ -423,7 +540,8 @@ struct ServerApp::Impl {
                                 ver = bridge.graph_version();
                                 // 引擎权威快照 + 推导槽位(output_slot 节点)
                                 ok = bridge.graph_json(authoritative, err) &&
-                                     bridge.declared_outputs(slots, err);
+                                     bridge.declared_outputs(slots, err) &&
+                                     bridge.render_bindings(rb_json, err);
                             }
                         }
                         if (ok) {
@@ -432,6 +550,7 @@ struct ServerApp::Impl {
                                 st.graph_json = authoritative;
                                 st.slots = slots;
                                 st.graph_version = ver;
+                                st.render_bindings_json = rb_json;
                             }
                             submit_bake();  // 在 st.m 锁外提交(submit_bake 内部会再锁 st.m)
                         } else {

@@ -54,6 +54,9 @@ public:
     // 当前图序列化(引擎权威快照,含自动推导的输出声明)
     bool graph_json(std::string& out_json, std::string& err);
 
+    // 渲染域绑定表(渲染节点 → 上游数据契约)
+    bool render_bindings(std::string& out_json, std::string& err);
+
     // 重新扫描插件目录(热加载新节点:丢文件即注册)
     bool rescan(std::string& err);
 

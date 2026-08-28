@@ -51,7 +51,7 @@ class RenderPipelineStartNode(RenderNodeBase):
     name="磁力线渲染项", category="渲染", icon="🧲", domain="render",
     inputs={"prev": Port("any", default=None),
             "data": Port("vector_field", default=None)},
-    outputs={},
+    outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
         "dsmax": Param("scalar", default=0.2, min=0.05, max=2.0),
@@ -70,7 +70,7 @@ class RenderItemFieldLinesNode(RenderNodeBase):
     name="电场线渲染项", category="渲染", icon="⚡", domain="render",
     inputs={"prev": Port("any", default=None),
             "data": Port("vector_field", default=None)},
-    outputs={},
+    outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
         "dsmax": Param("scalar", default=0.2, min=0.05, max=2.0),
@@ -89,7 +89,7 @@ class RenderItemEFieldLinesNode(RenderNodeBase):
     name="粒子渲染项", category="渲染", icon="●", domain="render",
     inputs={"prev": Port("any", default=None),
             "data": Port("particle_buffer", default=None)},
-    outputs={},
+    outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
         "size": Param("scalar", default=0.07, min=0.01, max=1.0),
@@ -105,7 +105,7 @@ class RenderItemParticlesNode(RenderNodeBase):
     name="诊断点渲染项", category="渲染", icon="✚", domain="render",
     inputs={"prev": Port("any", default=None),
             "data": Port("scalar_field", default=None)},
-    outputs={},
+    outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
         "marker_size": Param("scalar", default=0.3, min=0.05, max=2.0),

@@ -40,12 +40,35 @@ async def main():
                   encoding="utf-8") as f:
             clean_graph = json.load(f)
         await ws.send(json.dumps({"type": "graph.upload", "graph": clean_graph}))
+        got_geom = False
         while True:
-            m = await recv_text(ws, 120)
-            if m["type"] == "bake_progress" and m["state"] in ("done", "error"):
-                assert m["state"] == "done", f"重置图烘焙失败: {m.get('note', '')}"
-                break
-        print("✓ 已重置为干净集成图")
+            frame = await asyncio.wait_for(ws.recv(), 120)
+            if isinstance(frame, (bytes, bytearray)):
+                # 收集几何帧(bake done 后到达)
+                view = bytes(frame)
+                hlen = struct.unpack("<I", view[:4])[0]
+                header = json.loads(view[4:4 + hlen].decode("utf-8"))
+                if header.get("type") == "geom":
+                    assert header["kind"] in ("field_lines", "efield_lines"), header
+                    # 逐线结构校验:u8 class u8 reason u16 n + 12n 字节
+                    off = 4 + hlen
+                    parsed = 0
+                    for _ in range(header["count"]):
+                        n = struct.unpack("<H", view[off + 2:off + 4])[0]
+                        off += 4 + n * 12
+                        parsed += 1
+                    assert parsed == header["count"] and off == len(frame)
+                    print(f"✓ 几何帧: kind={header['kind']} "
+                          f"node={header['node']} slot={header['slot']} "
+                          f"线数={header['count']}")
+                    got_geom = True
+                    break
+            else:
+                m = json.loads(frame)
+                if m["type"] == "bake_progress" and m["state"] == "done":
+                    pass  # 几何帧在 done 之后广播,继续等
+        assert got_geom, "烘焙后应收到几何帧"
+        print("✓ 已重置为干净集成图并收到场线几何帧")
 
         # 2) node.param → bake_progress queued/computing/done
         await ws.send(json.dumps({"type": "node.param", "node": "kp",
@@ -61,15 +84,19 @@ async def main():
         assert "computing" in states and states[-1] == "done", states
         print("✓ 参数更新 → 重烘焙完成")
 
-        # 3) set_particle_count → 等二进制帧
+        # 3) set_particle_count → 等粒子二进制帧(跳过几何帧)
         await ws.send(json.dumps({"type": "set_particle_count", "value": 5000}))
         got_bin = False
         while not got_bin:
             frame = await asyncio.wait_for(ws.recv(), 15)
             if isinstance(frame, (bytes, bytearray)):
+                hlen = struct.unpack("<I", frame[:4])[0]
+                header = json.loads(frame[4:4 + hlen].decode("utf-8"))
+                if header.get("type") == "geom":
+                    continue  # 几何帧跳过
                 got_bin = True
         hlen = struct.unpack("<I", frame[:4])[0]
-        header = json.loads(frame[4:4 + hlen])
+        header = json.loads(frame[4:4 + hlen].decode("utf-8"))
         body = frame[4 + hlen:]
         assert header["type"] == "s", header
         assert header["n"] == 5000, f"header: {header}"

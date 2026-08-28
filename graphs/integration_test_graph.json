@@ -18,7 +18,12 @@
     {"id": "drag", "type": "drag_layered", "params": {"multiplier": 1.0}},
     {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
     {"id": "oe", "type": "output_slot", "params": {"slot": "E"}},
-    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}}
+    {"id": "od", "type": "output_slot", "params": {"slot": "drag"}},
+    {"id": "rp", "type": "render_pipeline_start"},
+    {"id": "rfl", "type": "render_item_field_lines"},
+    {"id": "rel", "type": "render_item_efield_lines"},
+    {"id": "rpt", "type": "render_item_particles"},
+    {"id": "rdi", "type": "render_item_diagnostics"}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -39,7 +44,14 @@
     {"from": ["emul", "field"], "to": ["eadd", "b"]},
     {"from": ["mp", "field"], "to": ["ob", "field"]},
     {"from": ["eadd", "field"], "to": ["oe", "field"]},
-    {"from": ["drag", "coef"], "to": ["od", "field"]}
+    {"from": ["drag", "coef"], "to": ["od", "field"]},
+    {"from": ["rp", "next"], "to": ["rfl", "prev"]},
+    {"from": ["rfl", "next"], "to": ["rel", "prev"]},
+    {"from": ["rel", "next"], "to": ["rpt", "prev"]},
+    {"from": ["rpt", "next"], "to": ["rdi", "prev"]},
+    {"from": ["ob", "out"], "to": ["rfl", "data"]},
+    {"from": ["oe", "out"], "to": ["rel", "data"]},
+    {"from": ["od", "out"], "to": ["rdi", "data"]}
   ],
   "outputs": {}
 }

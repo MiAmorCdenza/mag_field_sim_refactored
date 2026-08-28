@@ -137,6 +137,28 @@ window.editor = (function () {
             }
             document.getElementById("outputs-json").value =
                 JSON.stringify(doc.outputs || {}, null, 2);
+            // 渲染域节点 → 渲染项实例(模板 id = 类型去 render_item_ 前缀)
+            const renderIds = new Set();
+            for (const [ndId, node] of Object.entries(idToNode)) {
+                if (node._spec?.domain !== "render") continue;
+                const jsonId = node.properties.json_id || ndId;
+                renderIds.add(jsonId);
+                if (node._spec.type === "render_pipeline_start") continue;
+                const templateId = node._spec.type.replace(/^render_item_/, "");
+                const params = {};
+                for (const [k, v] of Object.entries(node.properties)) {
+                    if (k === "spec_type" || k === "json_id" || k.startsWith("in:")) continue;
+                    params[k] = v;
+                }
+                window.renderRegistry && window.renderRegistry.instantiate(
+                    jsonId, templateId, params);
+            }
+            // 清理图中已不存在的渲染项实例
+            if (window.renderHost) {
+                for (const id of [...window.renderHost.items.keys()]) {
+                    if (!renderIds.has(id)) window.renderHost.unregisterItem(id);
+                }
+            }
             // 全部节点缺位置时(如内置默认图)自动做层次化排布
             if (doc.nodes.length &&
                 doc.nodes.every(nd => !nd.pos ||
@@ -298,9 +320,9 @@ registerRenderItem({
     function applyInlineCode() {
         if (!selectedNode) return;
         const code = document.getElementById("code-text").value;
-        const itemId = selectedNode.properties.json_id || "n" + selectedNode.id;
+        const templateId = selectedNode._spec.type.replace(/^render_item_/, "");
         try {
-            window.renderRegistry.compileInline(itemId, code);
+            window.renderRegistry.compileInline(templateId, code);
             selectedNode.properties.code = code;
             pushRenderParams(selectedNode);
             window.toast("✅ 内联渲染项已应用(随图 JSON 持久化)");
