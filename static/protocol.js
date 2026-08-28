@@ -28,10 +28,40 @@ window.protocol = (function () {
         document.getElementById("ptc-input").value = n;
     }
 
+    // ---- 前端日志:console 镜像 + warn 以上批量 POST /api/log 进同一条流 ----
+    const logQueue = [];
+    let logFlushTimer = null;
+
+    window.uiLog = function (level, event, msg, attr) {
+        attr = attr || {};
+        const rank = { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 }[level] ?? 2;
+        const fn = rank >= 4 ? "error" : rank === 3 ? "warn" : "log";
+        try { console[fn](`[ui.${event}] ${msg}`, attr); } catch (e) { /* ignore */ }
+        if (rank >= 3) {
+            logQueue.push({ level, scope: "ui", event, msg, attr });
+            if (!logFlushTimer) logFlushTimer = setTimeout(flushUiLogs, 1500);
+        }
+    };
+
+    function flushUiLogs() {
+        logFlushTimer = null;
+        const batch = logQueue.splice(0, logQueue.length);
+        if (!batch.length) return;
+        batch.forEach(e => {
+            fetch("/api/log", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(e),
+                keepalive: true,
+            }).catch(() => {});
+        });
+    }
+
     // ---- 全局错误可见化(调试) ----
     window.onerror = function (msg, src, line, col) {
         try {
             window.toast("JS 错误: " + msg + " @" + (src || "").split("/").pop() + ":" + line);
+            window.uiLog("error", "js_error", msg, { src: src, line: line, col: col });
             document.title = "ERR: " + msg;
         } catch (e) { /* ignore */ }
     };
@@ -101,6 +131,8 @@ window.protocol = (function () {
             }
         }
         ws.send(JSON.stringify({ type: "graph.upload", graph: doc }));
+        window.uiLog("info", "graph_upload", "图已上传,服务器开始烘焙",
+            { nodes: doc.nodes.length, edges: doc.edges.length });
         window.toast("图已上传,服务器开始烘焙");
     }
 

@@ -19,6 +19,7 @@
 #include "sim_pipeline.h"
 #include "server_app.h"
 #include "../core/table3d.h"
+#include "../core/logger.h"
 
 // 模块基址表(崩溃时判定栈帧所属 DLL)
 static DWORD64 g_modbases[512];
@@ -55,7 +56,7 @@ static const char* module_of(DWORD64 addr, DWORD64* off) {
     return best;
 }
 
-// 崩溃瞬间抓栈(诊断用)
+// 崩溃瞬间抓栈(诊断用;结构化入日志)
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     if (code == 0xe06d7363) return EXCEPTION_CONTINUE_SEARCH;  // 常规 C++ 异常
@@ -63,13 +64,20 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
                  ep->ExceptionRecord->ExceptionAddress);
     void* stack[48];
     USHORT n = CaptureStackBackTrace(0, 48, stack, nullptr);
+    nlohmann::json frames = nlohmann::json::array();
     for (USHORT i = 0; i < n; ++i) {
         DWORD64 off = 0;
         const char* mod = module_of((DWORD64)stack[i], &off);
+        frames.push_back({{"module", mod}, {"offset", off}});
         std::fprintf(stderr, "  [%u] %p  %s+0x%llx\n", i, stack[i], mod,
                      (unsigned long long)off);
     }
     std::fflush(stderr);
+    mflog::Logger::instance().log(
+        mflog::Level::Fatal, "crash", "access_violation", "进程崩溃",
+        {{"code", code},
+         {"addr", (unsigned long long)ep->ExceptionRecord->ExceptionAddress},
+         {"stack", frames}});
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -216,6 +224,7 @@ int main(int argc, char** argv) {
     snapshot_modules();
     std::string root = ".";
     std::string graph_path;
+    std::string log_level = "info";
     int frames = 120, count = 20000;
     int port = 8001;
     bool headless = false;
@@ -226,8 +235,12 @@ int main(int argc, char** argv) {
         else if (a == "--frames" && i + 1 < argc) frames = std::atoi(argv[++i]);
         else if (a == "--particles" && i + 1 < argc) count = std::atoi(argv[++i]);
         else if (a == "--port" && i + 1 < argc) port = std::atoi(argv[++i]);
+        else if (a == "--log-level" && i + 1 < argc) log_level = argv[++i];
         else if (a == "--headless") headless = true;
     }
+    mflog::Logger::instance().init(root + "/logs",
+                                   mflog::level_from_name(log_level));
+    _putenv_s("MF_LOG_LEVEL", log_level.c_str());  // Python 侧同步级别
 
     if (headless) {
         if (graph_path.empty()) {

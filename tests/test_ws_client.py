@@ -33,6 +33,20 @@ async def main():
         slots = list(msg["graph"]["outputs"].keys())
         print(f"✓ init_config,槽位: {slots}", flush=True)
 
+        # 1.5) 重置为干净的集成图(隔离先前测试对服务器状态的污染)
+        import os
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "graphs", "integration_test_graph.json"),
+                  encoding="utf-8") as f:
+            clean_graph = json.load(f)
+        await ws.send(json.dumps({"type": "graph.upload", "graph": clean_graph}))
+        while True:
+            m = await recv_text(ws, 120)
+            if m["type"] == "bake_progress" and m["state"] in ("done", "error"):
+                assert m["state"] == "done", f"重置图烘焙失败: {m.get('note', '')}"
+                break
+        print("✓ 已重置为干净集成图")
+
         # 2) node.param → bake_progress queued/computing/done
         await ws.send(json.dumps({"type": "node.param", "node": "kp",
                                   "name": "kp", "value": 3.5}))

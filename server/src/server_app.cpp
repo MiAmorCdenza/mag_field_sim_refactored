@@ -18,6 +18,7 @@
 #include "bake_bridge.h"
 #include "sim_pipeline.h"
 #include "encoder.h"
+#include "../core/logger.h"
 
 using json = nlohmann::json;
 
@@ -191,13 +192,13 @@ struct ServerApp::Impl {
             }
             if (stale) {
                 broadcast_progress(job.seq, "superseded");
-                std::cout << "[bake] 丢弃过期结果 seq=" << job.seq << std::endl;
+                MFL("bake", "stale_discard", Debug, "丢弃过期烘焙结果", (nlohmann::json{{"seq", job.seq}}));
             }
         }
         } catch (const std::exception& e) {
-            std::cerr << "[bake] EXCEPTION: " << e.what() << std::endl;
+            MFL("bake", "worker_exception", Error, "烘焙线程异常", (nlohmann::json{{"error", e.what()}}));
         } catch (...) {
-            std::cerr << "[bake] UNKNOWN EXCEPTION" << std::endl;
+            LOG_ERROR("bake", "worker_unknown_exception", "烘焙线程未知异常");
         }
     }
 
@@ -226,12 +227,11 @@ struct ServerApp::Impl {
                     std::string err;
                     for (auto& [slot, field] : *done) pipeline.install_baked(field, err);
                     broadcast_progress(st.completed_seq, "done");
-                    std::cout << "[bake] 已应用 seq=" << st.completed_seq
-                              << " slots=" << done->size() << std::endl;
+                    MFL("bake", "bake_applied", Info, "烘焙结果已应用", (nlohmann::json{{"seq", st.completed_seq}, {"slots", done->size()}}));
                 }
                 if (failed) {
                     broadcast_progress(fseq, "error", ferr);
-                    std::cout << "[bake] 失败 seq=" << fseq << ": " << ferr << std::endl;
+                    MFL("bake", "bake_failed", Error, "烘焙失败", (nlohmann::json{{"seq", fseq}, {"error", ferr}}));
                 }
             }
 
@@ -285,9 +285,9 @@ struct ServerApp::Impl {
             std::this_thread::sleep_until(next_frame);
         }
         } catch (const std::exception& e) {
-            std::cerr << "[sim] EXCEPTION: " << e.what() << std::endl;
+            MFL("sim", "loop_exception", Error, "仿真线程异常", (nlohmann::json{{"error", e.what()}}));
         } catch (...) {
-            std::cerr << "[sim] UNKNOWN EXCEPTION" << std::endl;
+            LOG_ERROR("sim", "loop_unknown_exception", "仿真线程未知异常");
         }
     }
 
@@ -325,23 +325,23 @@ struct ServerApp::Impl {
             if (ok) {
                 json m{{"type", "registry"}, {"types", json::parse(desc)}};
                 broadcast_text(m.dump());
-                std::cout << "[hotreload] 插件目录变化,注册表已刷新" << std::endl;
+                LOG_INFO("hotreload", "registry_refreshed", "插件目录变化,注册表已刷新");
             } else {
-                std::cerr << "[hotreload] 重扫失败: " << err << std::endl;
+                MFL("hotreload", "rescan_failed", Warn, "插件重扫失败", (nlohmann::json{{"error", err}}));
             }
         }
     }
 
     int run() {
-        std::cout << "🚀 mf_server: 动态节点仿真服务器" << std::endl;
+        LOG_INFO("server", "startup", "mf_server: 动态节点仿真服务器");
 
         // Python 引擎
         std::string err;
         if (!bridge.init(cfg.root, err)) {
-            std::cerr << "❌ 引擎初始化失败: " << err << std::endl;
+            MFL("server", "engine_init_failed", Fatal, "引擎初始化失败", (nlohmann::json{{"error", err}}));
             return 1;
         }
-        std::cout << "✅ Python 引擎就绪" << std::endl;
+        LOG_INFO("server", "engine_ready", "Python 引擎就绪");
 
         // 初始图
         st.graph_json = cfg.graph_path.empty() ? default_graph_json()
@@ -349,7 +349,7 @@ struct ServerApp::Impl {
         {
             std::lock_guard<std::mutex> g(bridge_m);
             if (!bridge.load_graph(st.graph_json, err)) {
-                std::cerr << "❌ 初始图加载失败: " << err << std::endl;
+                MFL("server", "graph_load_failed", Fatal, "初始图加载失败", (nlohmann::json{{"error", err}}));
                 return 1;
             }
             st.graph_version = bridge.graph_version();
@@ -357,13 +357,11 @@ struct ServerApp::Impl {
             bridge.graph_json(st.graph_json, err);
             bridge.declared_outputs(st.slots, err);
         }
-        std::cout << "✅ 初始图加载,槽位: ";
-        for (auto& s : st.slots) std::cout << s << " ";
-        std::cout << std::endl;
+        MFL("server", "graph_loaded", Info, "初始图加载完成", (nlohmann::json{{"slots", st.slots}, {"version", st.graph_version}}));
 
         // 主线程释放 GIL(必须,见 BakeBridge::release_main_thread 注释)
         if (!bridge.release_main_thread())
-            std::cerr << "⚠️ 主线程 GIL 释放失败" << std::endl;
+            LOG_WARN("server", "gil_release_failed", "主线程 GIL 释放失败");
 
         // 管线
         st.particle_count = cfg.particle_count;
@@ -398,12 +396,12 @@ struct ServerApp::Impl {
                           {"particles", st.particle_count},
                           {"version", ver}};
                 conn.send_text(init.dump());
-                std::cout << "[ws] 连接建立" << std::endl;
+                LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
             .onclose([this](crow::websocket::connection& conn, const std::string&) {
                 std::lock_guard<std::mutex> g(conn_m);
                 conns.erase(&conn);
-                std::cout << "[ws] 连接关闭" << std::endl;
+                LOG_INFO("ws", "disconnected", "WebSocket 连接关闭");
             })
             .onmessage([this](crow::websocket::connection& conn,
                               const std::string& data, bool is_binary) {
@@ -478,7 +476,7 @@ struct ServerApp::Impl {
                         st.respawn_flag = true;
                     }
                 } catch (const std::exception& e) {
-                    std::cerr << "[ws] 消息处理失败: " << e.what() << std::endl;
+                    MFL("ws", "message_error", Warn, "WS 消息处理失败", (nlohmann::json{{"error", e.what()}}));
                 }
             });
 
@@ -496,6 +494,24 @@ struct ServerApp::Impl {
             return crow::response(st.graph_json);
         });
 
+        CROW_ROUTE(app, "/api/log").methods("POST"_method)
+        ([this](const crow::request& req) {
+            // 前端日志汇聚进同一条流(UI 错误与服务器状态可关联)
+            try {
+                auto body = nlohmann::json::parse(req.body, nullptr, false);
+                if (body.is_null()) return crow::response(400);
+                mflog::Logger::instance().log(
+                    mflog::level_from_name(body.value("level", "info")),
+                    "ui." + body.value("scope", "anon"),
+                    body.value("event", "log"),
+                    body.value("msg", ""),
+                    body.value("attr", nlohmann::json::object()));
+            } catch (...) {
+                return crow::response(400);
+            }
+            return crow::response(R"({"ok":true})");
+        });
+
         CROW_ROUTE(app, "/")([this]() {
             std::ifstream f(cfg.root + "/static/index.html");
             std::ostringstream ss;
@@ -509,8 +525,7 @@ struct ServerApp::Impl {
             return crow::response(ss.str());
         });
 
-        std::cout << "✅ 服务启动: http://" << cfg.host << ":" << cfg.port
-                  << " (ws://.../ws)" << std::endl;
+        MFL("server", "listening", Info, "服务启动", (nlohmann::json{{"host", cfg.host}, {"port", cfg.port}, {"ws", "ws://.../ws"}}));
         app.bindaddr(cfg.host).port(cfg.port).run();
 
         // 关闭

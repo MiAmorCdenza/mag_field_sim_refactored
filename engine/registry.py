@@ -64,7 +64,9 @@ class Registry:
                 try:
                     spec.loader.exec_module(module)
                 except Exception as exc:  # 坏插件不拖垮引擎
-                    print(f"[Registry] 插件加载失败 {path}: {exc}", flush=True)
+                    from . import logging as engine_log
+                    engine_log.log("engine.registry", "plugin_load_failed", "warn",
+                                   f"插件加载失败: {path}", error=str(exc))
         for t, (cls, src) in _REGISTERED.items():
             if self.nodes.get(t) is not cls:
                 if t in self.nodes:

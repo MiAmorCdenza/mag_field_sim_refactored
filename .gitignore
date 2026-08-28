@@ -4,6 +4,9 @@ deploy_package/
 dist/
 *.zip
 
+# 运行日志(统一 JSON 日志输出)
+logs/
+
 # 本地运行环境(不入库)
 .venv/
 python_embed/
@@ -26,6 +29,10 @@ models/*.pyd
 models/*.so
 models/*.dll
 
+# C++ 构建产物
+*.obj
+server/build/
+
 # 运行时生成
 presets.json
 
@@ -34,7 +41,3 @@ presets.json
 Thumbs.db
 .vscode/
 .idea/
-
-# C++ ��������
-*.obj
-server/build/

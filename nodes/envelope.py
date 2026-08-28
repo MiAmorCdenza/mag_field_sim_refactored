@@ -128,7 +128,10 @@ class MagnetopauseNode(Node):
                 return self._msh23(X, Y, Z, internal, dipole, imf, kp, ps,
                                    safe_r, r_mp, pdyn, r0)
             except Exception as exc:
-                print(f"[magnetopause] MSH23 失败,回退 mode 2: {exc}", flush=True)
+                # Fallback to analytical model on failure
+                from engine import logging as engine_log
+                engine_log.log("node.magnetopause", "msh23_fallback", "warn",
+                               "MSH23 失败,回退 mode 2", error=str(exc))
                 mp_model = 2  # fall through
 
         # ============ mp=1/2:解析包边 ============
