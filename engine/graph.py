@@ -184,21 +184,34 @@ class Graph:
         self.version += 1
 
     def auto_layout(self, gap_x=240.0, gap_y=110.0):
-        """层次化自动排布(数据流 DAG 专用,Blender 式):
-        - 拓扑深度定列(源节点在最左,输出节点在最右)
-        - 同列按上游重心排序,减少连线交叉
-        - 孤立节点(无连线)排到最后一列之后
+        """域感知层次化排布:
+        - 场域(左)+ 粒子域(中):拓扑深度定列,同列重心排序,汇节点右对齐
+        - 渲染域(右):单列垂直链(渲染管线起始在最上,沿链边排布)
+        - 孤立数据节点排在数据域最后一列之后
         """
         from collections import deque
 
-        indeg = {nid: 0 for nid in self.nodes}
-        adj = {nid: [] for nid in self.nodes}
+        def domain_of(nid):
+            return self.nodes[nid].spec().get("domain", "field")
+
+        render_nodes = [n for n in self.nodes if domain_of(n) == "render"]
+        data_nodes = [n for n in self.nodes if domain_of(n) != "render"]
+
+        # ---- 全图邻接(渲染链 BFS 用) ----
+        adj_all = {nid: [] for nid in self.nodes}
         for (dst, _), (src, _) in self.inputs_map.items():
-            adj[src].append(dst)
-            indeg[dst] += 1
+            adj_all[src].append(dst)
+
+        # ---- 数据域层次排布 ----
+        indeg = {n: 0 for n in data_nodes}
+        adj = {n: [] for n in data_nodes}
+        for (dst, _), (src, _) in self.inputs_map.items():
+            if dst in adj and src in adj:
+                adj[src].append(dst)
+                indeg[dst] += 1
 
         depth = {}
-        queue = deque([n for n, d in indeg.items() if d == 0])
+        queue = deque([n for n in data_nodes if indeg[n] == 0])
         for n in queue:
             depth[n] = 0
         while queue:
@@ -208,11 +221,11 @@ class Graph:
                 indeg[m] -= 1
                 if indeg[m] == 0:
                     queue.append(m)
-        for n in self.nodes:
+        for n in data_nodes:
             depth.setdefault(n, 0)
 
-        # 汇节点(无下游,如 output_slot)统一钉到最右列:终端对齐
-        sinks = [n for n in self.nodes if not adj[n]]
+        # 汇节点(无下游)统一钉到最右列:终端对齐
+        sinks = [n for n in data_nodes if not adj[n]]
         if sinks:
             maxd = max(depth.values())
             for n in sinks:
@@ -223,7 +236,8 @@ class Graph:
             cols.setdefault(d, []).append(n)
 
         def sort_key(n):
-            ups = [s for (d2, _), (s, _) in self.inputs_map.items() if d2 == n]
+            ups = [s for (d2, _), (s, _) in self.inputs_map.items()
+                   if d2 == n and s in depth]
             if not ups:
                 return (-1.0, 0)  # 源节点置顶
             return (sum(depth.get(u, 0) for u in ups) / len(ups), 0)
@@ -235,18 +249,40 @@ class Graph:
         for (d2, _), (s, _) in self.inputs_map.items():
             connected.add(d2)
             connected.add(s)
-        orphans = [n for n in self.nodes if n not in connected]
+        orphans = [n for n in data_nodes if n not in connected]
 
         max_col = max((len(c) for c in cols.values()), default=0)
         x = 0.0
         for d in sorted(cols):
             col = cols[d]
-            # 列垂直居中于最高列
             y0 = 60.0 + (max_col - len(col)) / 2.0 * gap_y
             for i, n in enumerate(col):
                 self._pos[n] = [x, y0 + i * gap_y]
             x += gap_x
         for i, n in enumerate(orphans):
+            self._pos[n] = [x, 60.0 + i * gap_y]
+        if orphans:
+            x += gap_x
+
+        # ---- 渲染域:右侧单列垂直链 ----
+        chain = []
+        seen = set()
+        starts = [n for n in render_nodes
+                  if self.nodes[n].spec().get("type") == "render_pipeline_start"]
+        queue = deque(starts or ([render_nodes[0]] if render_nodes else []))
+        while queue:
+            n = queue.popleft()
+            if n in seen:
+                continue
+            seen.add(n)
+            chain.append(n)
+            for m in adj_all[n]:
+                if domain_of(m) == "render" and m not in seen:
+                    queue.append(m)
+        for n in render_nodes:
+            if n not in seen:
+                chain.append(n)
+        for i, n in enumerate(chain):
             self._pos[n] = [x, 60.0 + i * gap_y]
         self.version += 1
 
@@ -287,6 +323,30 @@ class Graph:
         if seen != len(self.nodes):
             raise GraphError("图存在环,拒绝加载")
 
+    # ================= 渲染域 =================
+    def render_bindings(self):
+        """渲染域绑定表(声明节点 → 数据契约)。
+
+        返回 [{node_id, type, params, inputs: {端口: [上游节点, 上游端口]}}]
+        供服务器编译数据通道:对绑定场运行对应数据源(追踪/采样/编码),
+        产出帧,通道名 = 渲染节点 id。
+        """
+        out = []
+        for nid, node in self.nodes.items():
+            if node.spec().get("domain") != "render":
+                continue
+            ins = {}
+            for (dst, dport), (src, sport) in self.inputs_map.items():
+                if dst == nid:
+                    ins[dport] = [src, sport]
+            out.append({
+                "node_id": nid,
+                "type": node.spec()["type"],
+                "params": dict(node.params),
+                "inputs": ins,
+            })
+        return out
+
     # ================= 求值与烘焙 =================
     def _node_lattice(self, node_id):
         """节点有效点阵(v1:图级单点阵;节点级点阵为后续优化)。"""
@@ -319,6 +379,10 @@ class Graph:
     def _eval_node(self, node_id):
         node = self.nodes[node_id]
         spec = node.spec()
+        if spec.get("domain") == "render":
+            raise GraphError(
+                f"渲染域节点 {node_id}({spec.get('type')})是声明节点,"
+                f"不参与数值求值")
 
         # 1) 收集原始输入(广播前)
         raw_inputs = {}

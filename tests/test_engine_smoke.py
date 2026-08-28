@@ -118,6 +118,70 @@ def test_auto_layout():
     print("✓ 层次化自动排布(源左→汇右)")
 
 
+@register_node(
+    type="test_render_start",
+    domain="render",
+    inputs={},
+    outputs={"next": "any"},
+    params={},
+)
+class TestRenderStart(Node):
+    def compute(self, **inputs):
+        raise GraphError("渲染域节点不应被求值")
+
+
+@register_node(
+    type="test_render_item",
+    domain="render",
+    inputs={"prev": Port("any", default=None),
+            "data": Port("scalar_field", default=None)},
+    outputs={},
+    params={"color": Param("string", default="#ffffff")},
+)
+class TestRenderItem(Node):
+    def compute(self, **inputs):
+        raise GraphError("渲染域节点不应被求值")
+
+
+def test_render_domain():
+    """渲染域:声明节点不求值、绑定表正确、排布在最右列。"""
+    g = make_graph()
+    g.add_node("rp", "test_render_start")
+    g.add_node("ri", "test_render_item", {"color": "#ff0000"})
+    g.connect("rp", "next", "ri", "prev")              # 垂直链(成员关系)
+    g.connect("add", "sum", "ri", "data")              # 跨域数据契约
+
+    # 绑定表
+    binds = {b["node_id"]: b for b in g.render_bindings()}
+    assert set(binds) == {"rp", "ri"}
+    assert binds["ri"]["inputs"]["data"] == ["add", "sum"]
+    assert binds["ri"]["params"]["color"] == "#ff0000"
+    assert binds["ri"]["type"] == "test_render_item"
+
+    # 场输出烘焙不受渲染域影响
+    assert np.allclose(g.bake(["S"])["S"]["scalar"], 16.0)
+
+    # 渲染域节点防御性拒绝求值
+    try:
+        g._eval_node("ri")
+        raise AssertionError("渲染域节点不应可求值")
+    except GraphError as e:
+        assert "渲染域" in str(e)
+
+    # JSON 往返后绑定保留
+    g2 = Graph(g.registry, None)
+    g2.load_json(g.to_json())
+    binds2 = {b["node_id"]: b for b in g2.render_bindings()}
+    assert binds2["ri"]["inputs"]["data"] == ["add", "sum"]
+
+    # 排布:渲染域在最右列
+    g2.auto_layout()
+    assert g2._pos["rp"][0] > g2._pos["add"][0]
+    assert g2._pos["ri"][0] > g2._pos["add"][0]
+    assert g2._pos["rp"][1] < g2._pos["ri"][1]  # 起始在链顶
+    print("✓ 渲染域声明节点:绑定表/防御求值/JSON往返/右列垂直链")
+
+
 def make_graph():
     reg = Registry([])  # 空插件目录,类型已在上面程序化注册
     reg.scan()          # scan 会吸收 _REGISTERED 中的程序化注册
@@ -203,4 +267,5 @@ if __name__ == "__main__":
     test_field_id_assigned()
     test_output_slot_auto_declare()
     test_auto_layout()
+    test_render_domain()
     print("\n全部冒烟测试通过 ✅")
