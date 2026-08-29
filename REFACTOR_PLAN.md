@@ -435,6 +435,10 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 **维护约定**:Python 一律用项目 venv(`.venv`,Python 3.14.2);CMake 钉死
 `Python3_EXECUTABLE=3.14`;服务器嵌入解释器优先 venv site-packages;
 日志统一走 JSON 日志器(engine.logging / server/core/logger.h / 前端 uiLog);
+**启动与演示走 `scripts\start.bat`(或 start.ps1)**:自动完成 venv 创建/
+依赖安装/CMake 配置编译/端口预检/启动/开浏览器;环境审计走
+`scripts\check_env.ps1`。注意 .ps1/.bat 必须存为 **UTF-8 with BOM**
+(PowerShell 5.1 对无 BOM 文件按 GBK 解析,中文会炸);
 **重型运行时对象(如 SimPipeline)用 `std::unique_ptr` 按需构造,避免隐式
 移动赋值**;`Emitter` 同理(含 mt19937 5000B 状态)——已改为**显式移动
 构造/赋值**。MSVC 14.51 对含多向量/大状态成员的类生成过错误代码
