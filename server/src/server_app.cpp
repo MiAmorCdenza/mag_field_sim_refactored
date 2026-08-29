@@ -299,8 +299,22 @@ struct ServerApp::Impl {
             if (prm.contains("dsmax")) tcfg.dsmax = prm["dsmax"].get<double>();
             if (prm.contains("err")) tcfg.err = prm["err"].get<double>();
             tcfg.rlim = std::max(15.0, pipeline->max_range * 0.98);
+            // 场表域(点阵范围):迹线越界即终止、种子按域过滤、rlim 封顶
+            // —— 点阵外 sample() 钳制出常数场,会画出长直伪线
+            // (纯偶极视图外侧"乱"的根因:tiny 点阵 ±10~15 Re vs rlim 88)
+            tcfg.txmin = table->xs.front(); tcfg.txmax = table->xs.back();
+            tcfg.tymin = table->ys.front(); tcfg.tymax = table->ys.back();
+            tcfg.tzmin = table->zs.front(); tcfg.tzmax = table->zs.back();
+            double dom_half = std::min({-tcfg.txmin, tcfg.txmax,
+                                        -tcfg.tymin, tcfg.tymax,
+                                        -tcfg.tzmin, tcfg.tzmax});
+            tcfg.rlim = std::min(tcfg.rlim, dom_half * 0.98);
 
-            SeedSet seeds = build_seeds(SeedConfig{});
+            SeedConfig sc;
+            sc.dom_xmin = table->xs.front(); sc.dom_xmax = table->xs.back();
+            sc.dom_ymin = table->ys.front(); sc.dom_ymax = table->ys.back();
+            sc.dom_zmin = table->zs.front(); sc.dom_zmax = table->zs.back();
+            SeedSet seeds = build_seeds(sc);
             std::vector<std::pair<int, FieldLine>> lines;
             auto trace_all = [&](const std::vector<Vec3>& v, int cls) {
                 for (const auto& s : v) {

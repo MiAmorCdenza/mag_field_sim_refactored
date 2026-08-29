@@ -160,6 +160,48 @@ int main() {
         CHECK(ms < 2000.0, "全种子集 < 2 秒(预算内)");
     }
 
+    std::printf("=== 4) 场表域自适应(tiny 点阵:越界伪线回归) ===\n");
+    {
+        // tiny 点阵:x∈[-15,10] y,z∈[-12,12](与 lattices.tiny 同构)
+        SeedConfig sc;
+        sc.dom_xmin = -15.0; sc.dom_xmax = 10.0;
+        sc.dom_ymin = -12.0; sc.dom_ymax = 12.0;
+        sc.dom_zmin = -12.0; sc.dom_zmax = 12.0;
+        SeedSet seeds = build_seeds(sc);
+        CHECK(seeds.solarwind.empty(),
+              "太阳风种子(x=18)在 tiny 域外 → 全部过滤");
+        size_t bad = 0;
+        for (const auto& p : seeds.closed)
+            if (p.x > 9.5 || p.x < -14.5 || p.y > 11.5 || p.z > 11.5) ++bad;
+        CHECK(bad == 0, "闭合种子均在域内(含 0.5 余量)");
+        std::printf("     域内种子: 闭合 %zu + 开放 %zu + 太阳风 %zu\n",
+                    seeds.closed.size(), seeds.open.size(), seeds.solarwind.size());
+
+        // 迹线不越域:带域界的 L=3 闭合线全程 |坐标| ≤ 域边界
+        TraceConfig tcfg;
+        tcfg.rlim = 88.0;  // 旧行为:rlim 远超 tiny 域,看是否被域界拦住
+        tcfg.txmin = -15.0; tcfg.txmax = 10.0;
+        tcfg.tymin = -12.0; tcfg.tymax = 12.0;
+        tcfg.tzmin = -12.0; tcfg.tzmax = 12.0;
+        FieldLine line;
+        trace_line(table, Vec3(3.0, 0.0, 0.0), tcfg, line);
+        double max_abs = 0.0, max_abs_any = 0.0;
+        bool inside = true;
+        for (const auto& p : line.pts) {
+            if (p.x < tcfg.txmin || p.x > tcfg.txmax ||
+                p.y < tcfg.tymin || p.y > tcfg.tymax ||
+                p.z < tcfg.tzmin || p.z > tcfg.tzmax)
+                inside = false;
+            max_abs = std::max(max_abs, p.norm());
+            max_abs_any = std::max({max_abs_any, std::abs(p.x),
+                                    std::abs(p.y), std::abs(p.z)});
+        }
+        CHECK(inside, "迹线全程在点阵域内(无钳制场伪线段)");
+        std::printf("     L=3 线: 点数 %zu,max|r|=%.2f(≤域内球 rlim=%.1f)\n",
+                    line.pts.size(), max_abs,
+                    std::min(tcfg.rlim, std::min({14.5, 9.5, 11.5, 11.5})));
+    }
+
     std::printf(failures ? "\n[%d 项失败]\n" : "\n追踪器验收全部通过 ✅\n", failures);
     return failures ? 1 : 0;
 }

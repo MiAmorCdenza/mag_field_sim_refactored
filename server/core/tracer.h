@@ -26,6 +26,10 @@ struct TraceConfig {
     double cyl_radius = 40.0;  // 外边界圆柱(绕 X 轴)
     double xmax = 20.0;        // 外边界平面
     int max_points = 2000;     // 单方向点数上限
+    // 场表域(点阵范围,缺省全开):越出即终止 —— Table3D::sample 越界
+    // 钳制得到的常数场会把迹线拉成长直伪线(纯偶极视图外侧"乱"的根因)
+    double txmin = -1e30, txmax = 1e30, tymin = -1e30, tymax = 1e30,
+           tzmin = -1e30, tzmax = 1e30;
 };
 
 enum class TermReason : uint8_t {
@@ -82,6 +86,12 @@ inline TermReason trace_one(const Table3D& table, const Vec3& start, double dir,
         // 外边界三面判据
         if (r > cfg.rlim || ryz > cfg.cyl_radius * cfg.cyl_radius ||
             x.x > cfg.xmax) {
+            out.reason = TermReason::LeftDomain;
+            break;
+        }
+        // 场表域判据:越过点阵边界 → 终止(钳制场伪线不得出现)
+        if (x.x < cfg.txmin || x.x > cfg.txmax || x.y < cfg.tymin ||
+            x.y > cfg.tymax || x.z < cfg.tzmin || x.z > cfg.tzmax) {
             out.reason = TermReason::LeftDomain;
             break;
         }
@@ -192,15 +202,31 @@ struct SeedConfig {
     double sw_x = 18.0;
     double sw_half = 25.0;
     double sw_step = 5.0;
+    // 域自适应(缺省全开):生成时过滤,保证种子都在场表域内。
+    // 域外种子(如 x=18 的太阳风平面 vs ±10 的 tiny 点阵)整条迹线
+    // 都从钳制场开始 → 纯伪线(绿色大扇子的来源)
+    double dom_xmin = -1e30, dom_xmax = 1e30,
+           dom_ymin = -1e30, dom_ymax = 1e30,
+           dom_zmin = -1e30, dom_zmax = 1e30;
+    double dom_margin = 0.5;  // 距域边界的种子保留余量(Re)
 };
 
 inline SeedSet build_seeds(const SeedConfig& cfg) {
     SeedSet s;
+    auto in_dom = [&](const Vec3& p) {
+        return p.x >= cfg.dom_xmin + cfg.dom_margin &&
+               p.x <= cfg.dom_xmax - cfg.dom_margin &&
+               p.y >= cfg.dom_ymin + cfg.dom_margin &&
+               p.y <= cfg.dom_ymax - cfg.dom_margin &&
+               p.z >= cfg.dom_zmin + cfg.dom_margin &&
+               p.z <= cfg.dom_zmax - cfg.dom_margin;
+    };
     // 闭合:磁赤道面(z=0)L 环
     for (double L : cfg.l_shells) {
         for (int i = 0; i < cfg.angles_per_shell; ++i) {
             double th = 2.0 * M_PI * i / cfg.angles_per_shell;
-            s.closed.push_back(Vec3(L * std::cos(th), L * std::sin(th), 0.0));
+            Vec3 p(L * std::cos(th), L * std::sin(th), 0.0);
+            if (in_dom(p)) s.closed.push_back(p);
         }
     }
     // 开放:极盖球面网格(南北半球)
@@ -210,14 +236,17 @@ inline SeedSet build_seeds(const SeedConfig& cfg) {
             double phi = 2.0 * M_PI * i / cfg.polar_lons;
             double rxy = 1.02 * std::sin(th);
             double z = 1.02 * std::cos(th);
-            s.open.push_back(Vec3(rxy * std::cos(phi), rxy * std::sin(phi), z));
-            s.open.push_back(Vec3(rxy * std::cos(phi), rxy * std::sin(phi), -z));
+            Vec3 a(rxy * std::cos(phi), rxy * std::sin(phi), z);
+            Vec3 b(rxy * std::cos(phi), rxy * std::sin(phi), -z);
+            if (in_dom(a)) s.open.push_back(a);
+            if (in_dom(b)) s.open.push_back(b);
         }
     }
     // 太阳风:上游 YZ 平面
     for (double y = -cfg.sw_half; y <= cfg.sw_half + 1e-9; y += cfg.sw_step) {
         for (double z = -cfg.sw_half; z <= cfg.sw_half + 1e-9; z += cfg.sw_step) {
-            s.solarwind.push_back(Vec3(cfg.sw_x, y, z));
+            Vec3 p(cfg.sw_x, y, z);
+            if (in_dom(p)) s.solarwind.push_back(p);
         }
     }
     return s;
