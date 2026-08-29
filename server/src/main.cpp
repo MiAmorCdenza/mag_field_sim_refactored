@@ -11,7 +11,10 @@
 #include <sstream>
 #include <string>
 
+// winsock2 必须先于 windows.h(端口占用预检用);且 winsock2.h 自身会
+// 包含 windows.h,故 NOMINMAX 必须在其之前(min/max 宏污染 std::max)
 #define NOMINMAX
+#include <winsock2.h>
 #include <windows.h>
 #include <tlhelp32.h>
 
@@ -255,6 +258,34 @@ int main(int argc, char** argv) {
     cfg.graph_path = graph_path;
     cfg.port = port;
     cfg.particle_count = count;
+
+    // 端口占用预检:Windows 下 SO_REUSEADDR 允许双进程绑同一端口,
+    // 请求会随机落到两个实例(已实际踩坑:两个 mf_server 抢 8001,
+    // 页面/API 时而连 A 时而连 B)。先独占探测,失败即报错退出。
+    {
+        WSADATA wsa{};
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) {
+            SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (s != INVALID_SOCKET) {
+                sockaddr_in addr{};
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_ANY);
+                addr.sin_port = htons((u_short)port);
+                if (bind(s, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+                    std::fprintf(stderr,
+                                 "[fatal] 端口 %d 已被占用:可能存在另一个 "
+                                 "mf_server 实例在运行,请先停止它或换 --port\n",
+                                 port);
+                    closesocket(s);
+                    WSACleanup();
+                    return 1;
+                }
+                closesocket(s);
+            }
+            WSACleanup();
+        }
+    }
+
     ServerApp app;
     return app.run(cfg);
 }

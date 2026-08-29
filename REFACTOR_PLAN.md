@@ -452,3 +452,10 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 7. **所有帧坐标统一 Three.js 约定 (x,y,z)→(x,z,-y)**:粒子帧(encoder.h)
    与几何帧(build_geom_frame)必须一致;几何帧漏映射会让 GSM 极轴躺在
    场景 Z 上,磁极横置
+8. **LiteGraph any 端口必须用通配类型 `"*"`(非颜色字符串)**:v0.4 的
+   isValidConnection 对非空类型严格相等,any 用颜色会让 vector_field→any
+   等连线被 connect 静默拒绝 → 编辑器往返丢边 → 服务器侧"输出槽未连接
+   场源"(实测默认图 26 边往返丢 6 边,全是穿过 output_slot 的边)
+9. **NOMINMAX 必须在 winsock2.h 之前**(winsock2 自身包含 windows.h)
+10. **服务器启动前做端口占用预检**:Windows SO_REUSEADDR 允许双进程绑
+    同端口,请求会随机落到两个实例(已踩坑,见 main.cpp)

@@ -24,6 +24,7 @@ class OutputSlotNode(Node):
     def compute(self, field):
         if field is None:
             raise GraphError(
-                f"输出槽「{self.params.get('slot', '?')}」未连接场源:"
+                f"输出槽节点「{self.node_id}」(槽位 "
+                f"{self.params.get('slot', '?')})未连接场源:"
                 f"请把上游场的输出端口连线到本节点的 field 输入")
         return {"out": field}

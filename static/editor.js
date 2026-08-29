@@ -43,12 +43,17 @@ window.editor = (function () {
             // 绘制循环读 node.flags.collapsed 每帧抛错、节点永不渲染。
             LGraphNode.call(this, title || "");
             this.properties = {};
+            // any 端口必须用 LiteGraph 通配类型 "*"(空串亦可):
+            // v0.4 的 isValidConnection 对非空类型严格相等,若 any 用颜色
+            // 字符串,vector_field→any / any→vector_field 连线会被 connect
+            // 静默拒绝 → 图往返丢边 → 服务器侧"输出槽未连接场源"
+            const wireType = t => (t === "any" ? "*" : TYPE_COLORS[t] || "#888");
             for (const [pname, port] of Object.entries(spec.inputs)) {
-                this.addInput(pname, TYPE_COLORS[port.ptype] || "#888");
+                this.addInput(pname, wireType(port.ptype));
                 this.properties["in:" + pname] = port.default;
             }
             for (const [oname, otype] of Object.entries(spec.outputs)) {
-                this.addOutput(oname, TYPE_COLORS[otype] || "#888");
+                this.addOutput(oname, wireType(otype));
             }
             for (const [k, p] of Object.entries(spec.params)) {
                 this.properties[k] = p.default;
