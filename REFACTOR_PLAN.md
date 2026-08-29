@@ -408,7 +408,7 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 | D6 | 渲染域背景色带 | 仅节点着色,画布右侧分区色带未画 |
 | D7 | 场线方向箭头 | 参数已留(arrows/arrow_spacing),渲染未实现(legacy 的沿线锥体阵列) |
 | D8 | 诊断点渲染项数据帧 | 节点+绑定已接入,服务器不产出 diagnostics 几何帧 |
-| D9 | 粒子拖尾渲染项 | legacy 特性未迁移 |
+| D9 | 粒子拖尾渲染项 | ✅ 已实现(renderer/items/trails.js):客户端从已收帧推导,**零额外带宽**;单 LineSegments+vertexColors 全色一次 draw call,id 变化重置/死亡冻结 |
 | D10 | MSH23 exe 恢复 | mp_mode=3 目前总回退 mode 2;exe 未入库(robocopy 排除) |
 | D11 | TS05/TA16 接入 | 原项目 cp314 pyd 与系统 ABI 匹配,未复制接线 |
 | D12 | 图保存/加载到磁盘 UI | 服务器端图仓库(目前仅上传/重置,无持久化) |
