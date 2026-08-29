@@ -43,6 +43,9 @@ def species_graph(alpha_enabled):
         "edges": [
             {"from": ["dip", "field"], "to": ["ob", "field"]},
             {"from": ["ob", "out"], "to": ["bi", "b"]},
+            {"from": ["se", "next"], "to": ["sp", "prev"]},
+            {"from": ["sp", "next"], "to": ["sa", "prev"]},
+            {"from": ["sa", "types"], "to": ["pe", "types"]},
             {"from": ["pe", "next"], "to": ["bi", "prev"]},
             {"from": ["bi", "next"], "to": ["oe", "prev"]},
         ],

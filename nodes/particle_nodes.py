@@ -72,7 +72,7 @@ _SPECIES_PRESETS = {
 @register_node(
     type="particle_emitter",
     name="粒子发射器", category="粒子/来源", icon="⏺", domain="particle",
-    inputs={},
+    inputs={"types": Port("any", default=None)},
     outputs={"next": "any"},
     params=_EMITTER_PARAMS,
     version=1,
@@ -80,16 +80,17 @@ _SPECIES_PRESETS = {
 class ParticleEmitterNode(ParticleNodeBase):
     """粒子发射器:参数镜像 C++ EmitterConfig。
 
-    类型列表来自图中声明式 particle_species 节点(计划编译时聚合);
-    无物种节点时沿用服务器默认三种类型。
+    types 输入 = 物种链:把物种节点连成 prev/next 链后,把链尾的
+    types 接进来(一个槽位接受整条链)。不连 = 图中全部物种节点
+    (或无物种节点时服务器默认三种类型)。
     """
 
 
 @register_node(
     type="particle_species",
     name="粒子物种", category="粒子/来源", icon="◉", domain="particle",
-    inputs={},
-    outputs={"out": "any"},
+    inputs={"prev": Port("any", default=None)},
+    outputs={"next": "any", "types": "any"},
     params={
         "preset": Param("enum", default="custom",
                         choices=["custom", "electron", "proton", "alpha"],
@@ -113,6 +114,9 @@ class ParticleSpeciesNode(ParticleNodeBase):
     元素参照老版本 particle_types 的 name/q/m/v_mult/weight/color/checked;
     设计上不用"发射器内的列表",而是独立声明节点 —— 物种可插拔、
     可组合(与场的原子节点同一哲学)。
+
+    连线方式:多个物种用 prev/next 连成链(定义顺序),链尾的 types
+    接入发射器的 types 输入(一个槽位接受整条链)。
     """
 
     def __init__(self, node_id, params=None):

@@ -353,7 +353,12 @@ def test_particle_species():
              "params": {"preset": "alpha", "enabled": False}},
             {"id": "sc", "type": "particle_species"},
         ],
-        "edges": [],
+        "edges": [
+            {"from": ["se", "next"], "to": ["sp", "prev"]},
+            {"from": ["sp", "next"], "to": ["sa", "prev"]},
+            {"from": ["sa", "next"], "to": ["sc", "prev"]},
+            {"from": ["sc", "types"], "to": ["pe", "types"]},
+        ],
         "outputs": {},
     }
     g.load_json(doc)
@@ -369,7 +374,10 @@ def test_particle_species():
     by_id = {o["node"]: o for o in species}
     assert by_id["sa"]["params"]["enabled"] is False
     assert by_id["sc"]["params"]["q"] == 1.0  # 默认自定义粒子
-    print("✓ 计划聚合 4 个物种算子(enabled 透传)")
+    # 链序:物种拓扑序 = prev/next 链顺序,发射器的 types 输入指向链尾
+    em = next(o for o in plan["ops"] if o["kind"] == "emitter")
+    assert em["inputs"].get("types") == "sc"
+    print("✓ 计划聚合 4 个物种算子(链序 + 发射器 types 指向链尾)")
 
     # 预设切换 + 手动编辑转自定义
     g.set_param("sc", "preset", "alpha")
