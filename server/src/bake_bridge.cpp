@@ -205,6 +205,20 @@ bool BakeBridge::render_bindings(std::string& out_json, std::string& err) {
     }
 }
 
+bool BakeBridge::particle_plan(std::string& out_json, std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        auto json_mod = py::module_::import("json");
+        py::object plan = impl_->graph.attr("particle_plan")();
+        out_json = json_mod.attr("dumps")(plan, py::arg("ensure_ascii") = false)
+                       .cast<std::string>();
+        return true;
+    } catch (const std::exception& e) {
+        err = py_error_detail(e);
+        return false;
+    }
+}
+
 bool BakeBridge::rescan(std::string& err) {
     try {
         py::gil_scoped_acquire g;

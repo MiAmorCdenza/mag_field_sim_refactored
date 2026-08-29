@@ -257,6 +257,76 @@ def test_bake_format():
     print("✓ bake 传输格式正确")
 
 
+def test_particle_domain():
+    """粒子域 L1:声明桩注册 + particle_plan 编译 + 求值防御 + 布局列带。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    for t in ("particle_emitter", "boris_integrator", "leapfrog_integrator",
+              "rk4_integrator", "verlet_integrator", "output_encoder"):
+        cls = reg.get(t)
+        assert cls is not None, f"粒子域节点未注册: {t}"
+        assert cls._node_spec.get("domain") == "particle", f"{t} 域标记错误"
+    print("✓ 粒子域声明桩已注册(6 类型,domain=particle)")
+
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+    doc = {
+        "version": 1, "lattice": {"preset": "tiny"},
+        "nodes": [
+            {"id": "pe", "type": "particle_emitter",
+             "params": {"mode": 1, "v_base": 500.0}},
+            {"id": "bi", "type": "boris_integrator",
+             "params": {"dt": 0.02, "substeps": 4}},
+            {"id": "rk", "type": "rk4_integrator"},
+            {"id": "oe", "type": "output_encoder"},
+            {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
+        ],
+        "edges": [
+            {"from": ["pe", "next"], "to": ["bi", "prev"]},
+            {"from": ["bi", "next"], "to": ["rk", "prev"]},
+            {"from": ["rk", "next"], "to": ["oe", "prev"]},
+            {"from": ["ob", "out"], "to": ["bi", "b"]},
+        ],
+        "outputs": {},
+    }
+    g.load_json(doc)
+    plan = g.particle_plan()
+    kinds = [o["kind"] for o in plan["ops"]]
+    assert kinds == ["emitter", "step", "step", "encode"], kinds
+    assert plan["slow_path"] is False and plan["count"] == 4
+    assert plan["ops"][0]["params"]["v_base"] == 500.0
+    assert plan["ops"][1]["kernel"] == "boris"
+    assert plan["ops"][1]["slots"]["b"] == "B"
+    assert plan["ops"][1]["slots"]["e"] is None
+    assert plan["ops"][2]["kernel"] == "rk4"
+    print("✓ particle_plan 编译正确(链序/内核/槽位解析)")
+
+    # 未知粒子域类型 → slow_path(成本徽标)
+    saved = Graph._PARTICLE_OP_KINDS.pop("output_encoder")
+    try:
+        plan2 = g.particle_plan()
+        assert plan2["slow_path"] is True
+        assert plan2["count"] == 3  # 未知类型被跳过
+    finally:
+        Graph._PARTICLE_OP_KINDS["output_encoder"] = saved
+    print("✓ 未知粒子域类型 → slow_path 标志")
+
+    # 求值防御:粒子域节点不参与 Python 求值
+    try:
+        g._eval_node("bi")
+        raise AssertionError("粒子域节点应拒绝求值")
+    except GraphError as e:
+        assert "声明节点" in str(e)
+    print("✓ 粒子域节点求值防御")
+
+    # 布局:粒子列带位于场域之后,链内垂直有序
+    xs = [g._pos[n][0] for n in ("pe", "bi", "rk", "oe")]
+    ys = [g._pos[n][1] for n in ("pe", "bi", "rk", "oe")]
+    assert len(set(xs)) == 1, f"粒子链应在同一列: {xs}"
+    assert xs[0] > g._pos["ob"][0], "粒子列带应在场域右侧"
+    assert ys == sorted(ys), f"粒子链应垂直有序: {ys}"
+    print("✓ 粒子域中列带布局(场左→粒子中)")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -268,4 +338,5 @@ if __name__ == "__main__":
     test_output_slot_auto_declare()
     test_auto_layout()
     test_render_domain()
+    test_particle_domain()
     print("\n全部冒烟测试通过 ✅")

@@ -241,21 +241,35 @@ class Node:
 - **particle 域**:无逐帧缓存;执行计划编辑期编译并缓存
 - **图版本号**:每次编辑 +1;烘焙请求 = `(graph_version, slots)`;现有 seq 过期机制接管
 
-### 5.7 执行计划(粒子域子图)
+### 5.7 执行计划(粒子域子图)—— ✅ L1 已落地(2025 重构)
 
 ```cpp
 struct PlanOp {
-    OpKind kind;                  // 原生算子 id
-    std::vector<BufferRef> in, out;
-    ParamSnapshot params;         // 参数更新 = 换快照,不重建计划
-    // 或 PyOp: Python 节点 → GIL + numpy 零拷贝视图
+    OpKind kind;                  // Emitter / Step / Encode / Respawn(预留)
+    std::string node_id;
+    EmitterOp emitter;            // 参数镜像 EmitterConfig(节点参数驱动)
+    StepOp step;                  // kernel/dt/substeps/max_range/引力/b/e/drag 槽位
+    EncodeOp encode;
+    RespawnOp respawn;
 };
 struct Plan { std::vector<PlanOp> ops; bool slow_path; };
 ```
 
-- 编辑期:拓扑排序 → 计划描述 JSON → `plan.install()`;
-  运行时 sim 线程顺序执行,**全原生 = 每帧零 Python**
-- 含 Python 节点的混合计划打 `slow_path` 标记 → 前端成本徽标 + 建议粒子数上限
+- 编译链:图 JSON → `Graph.particle_plan()`(引擎权威,链序 = prev/next 拓扑,
+  数据端口 → output_slot 槽位名)→ `plancomp::plan_from_json()` → `SimPipeline::set_plan()`
+- 运行时 sim 线程顺序执行,**全原生 = 每帧零 Python**;`slow_path` 标记
+  (粒子域未知类型)→ 广播 `plan_status` → 前端成本徽标
+- **L1 推进内核 seam**(`server/core/advancers.h`):`IBatchAdvancer` + 注册表,
+  内置四内核:`boris`(legacy 原样封装,默认图**位级一致**基准)、
+  `leapfrog`(Boris 旋转 + 踢-漂-踢)、`rk4`(全经典,对回旋耗散)、
+  `verlet`(Boris 旋转 + 位置先行)。**换步进器 = 图上换节点**。
+- 关键物理决策:经典核的磁力部分用 **Boris 旋转**(v×B 正交力线性踢
+  每步涨能 ~(hω)²/4,200 步可爆 60×;旋转无条件稳定、精确保模);
+  E/引力/阻力由各经典格式负责排布。RK4 保留全经典(教科书对照)。
+- 无粒子域节点 → `make_default_plan()` 后备计划(行为 = legacy 硬编码
+  管线,位级一致);`node.param`(如积分器 dt)热更新 = 计划重编译。
+- 未来 L2(DLL SDK):`AdvanceInput` POD 布局即 ABI 边界,extern "C"
+  工厂 + 同一虚表约定,封装约百行;未到需要外置原生内核前不实施。
 
 ### 5.8 两级校验
 
@@ -372,8 +386,8 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 |---|---|---|
 | 0 基线 | ✅ | legacy/ 归档、git 工作流、venv 化(Python 3.14.2)、统一 JSON 日志系统 |
 | 1 引擎+场节点 | ✅ | 引擎核心(内容寻址缓存 / any 端口 / output_slot 自动推导 / 渲染域声明节点 / 域感知自动排布)、29+ 场节点(E 场原子分解:convection/corotation/volland_shield + add/mul 组合)、默认图/集成图、**19 诊断点逐位对照(max|Δ|=0.00)**、C++ 烘焙桥与仿真管线 |
-| 2 粒子域 | ◐ 部分 | C++ 原生热路径(Boris/查表/发射/编码,持久线程池 **0.63ms/步**)、服务器集成(WS/烘焙线程/二进制帧);**粒子域节点化未做**(见债务 §11) |
-| 3 前端 | ✅ | LiteGraph 节点编辑器、属性面板、图上传;**渲染宿主+注册表+渲染项插件化**、内联代码编辑器(网页改 JS 即时生效)、渲染链 UI(渲染域紫色节点+垂直链) |
+| 2 粒子域 | ✅ | C++ 原生热路径(Boris/查表/发射/编码,持久线程池 **0.16ms/步**)+ **L1 图驱动化**:粒子域声明桩(nodes/particle_nodes.py 6 类型)、`Graph.particle_plan()` 计划编译、`IBatchAdvancer` 内核 seam + 四内核(Boris 位级一致 / 蛙跳 / RK4 / 速度Verlet)、Plan 驱动 SimPipeline、图上换节点热切换(端到端测试:上传→计划应用→参数热→内核热) |
+| 3 前端 | ✅ | LiteGraph 节点编辑器、属性面板、图上传;**渲染宿主+注册表+渲染项插件化**、内联代码编辑器(网页改 JS 即时生效)、渲染链 UI(渲染域紫色节点+粒子域绿色节点+三域列带) |
 | 4 热加载/校验 | ◐ 部分 | 丢文件即注册(场节点+渲染项)+ 回滚安全(渲染项编译失败回退旧实现);ExpressionNode 与两级校验完整化未做(见 §11) |
 | 附加 | ✅ | **TRACE_08 C++ 移植**(RK-Merson/三面边界/足点插值/环检测;**偶极解析解验收 r=L·sin²θ 误差 0.0009、273 线 11ms**)、几何帧通道(场线 273 条/槽位 B 端到端)、场线/电场线渲染项(拓扑类三色) |
 
@@ -382,7 +396,7 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 | # | 欠账 | 说明 |
 |---|---|---|
 | D1 | **ExpressionNode** | field 域 numpy 表达式节点(计划 §5.10):AST 白名单沙箱 + 试烘焙校验 |
-| D2 | **粒子域节点化** | 发射器/积分器/采样器/编码器作为图内节点(阶段 2 验收项);发射器为 Python 一次性批量,其余原生 |
+| D2 | **粒子域节点化(已做 L1)** | ✅ 发射器/积分器(×4)/编码器为图内节点,图驱动执行计划(§5.7);采样器显式节点与 Python 慢速路径算子留待后续 |
 | D3 | **两级校验完整化** | engine/validation.py 不存在:场节点"粗点阵试烘焙"、粒子节点"小缓冲试运行"未实现 |
 | D4 | user_render_items/ 文件热扫描 | 服务器目录监听 + 前端动态 import(内联编辑器已可用,文件插件路径未通) |
 | D5 | 渲染项"存为插件文件"按钮 | 代码编辑器设计了该按钮,未实现(现仅应用/重置) |
@@ -408,11 +422,33 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 | 4 | **代理模型节点** | SWMF 代理模型(ONNX/解析式)作为场节点,与 T 系列并排插拔、同屏 A/B 对比 |
 | 5 | 分析/切片渲染项 | 赤道面 \|B\| 剖面、磁层顶线框、L 壳漂移路径叠加(均消费 B/E 表产出几何) |
 | 6 | 数据源节点 | omni_source(OMNIWeb 回放)、csv_field_source、satellite_ephemeris → 可复现仿真报告 |
-| 7 | 粒子域节点化(债务 D2) | 最后一块大域;建议在子图之后 |
+| 7 | 粒子域深化(债务 D2 续) | 采样器显式节点、Python 慢速路径算子(slow_path 落地)、发射器粒子类型列表节点参数 |
 | 8 | 插件包格式 | plugin_packs/*.zip(节点.py+渲染项.js+图标+自检样例),拖入即安装 |
 | 9 | 原生节点 SDK(债务 D16) | 用户 C++ 内核挂图 |
 | 10 | 插件健康徽标 | 面板显示自检通过/警告/失败状态 |
 
 **维护约定**:Python 一律用项目 venv(`.venv`,Python 3.14.2);CMake 钉死
 `Python3_EXECUTABLE=3.14`;服务器嵌入解释器优先 venv site-packages;
-日志统一走 JSON 日志器(engine.logging / server/core/logger.h / 前端 uiLog)。
+日志统一走 JSON 日志器(engine.logging / server/core/logger.h / 前端 uiLog);
+**重型运行时对象(如 SimPipeline)用 `std::unique_ptr` 按需构造,避免隐式
+移动赋值**——MSVC 14.51 对含多向量成员的隐式 move-assign 生成过错误代码
+(启动即 0xC0000005,placement-new/unique_ptr 均正常;独立最小复现不触发,
+属代码生成问题,见 server_app.cpp Impl 注释);C++ 独立测试用
+VS18 vcvars64(`C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\
+Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
+
+**最简预设验收**(graphs/minimal_preset.json + tests/test_components.py,
+13 组件逐项验证;前端可视化用 CDP 探针 tests/cdp_*.py + 无头 Edge
+`--disable-gpu --enable-unsafe-swiftshader` + vision 复核)。该轮排掉的前端
+集成坑,后续改前端务必回归:
+1. WS 必须在注册表就绪后连接(boot 竞态 → init_config 的 loadGraph 整图跳过)
+2. 渲染项实例 = registry 的 per-node 拷贝,**不得再包一层**(包装对象破坏
+   onData 内 this.meshFor 等方法链)
+3. 几何帧派发 kind = `"geometry:" + header.kind`(与渲染项 subscribes 约定一致)
+4. 粒子 InstancedMesh **每帧重置 count**(否则矩阵区残留旧帧尾巴、计数虚高)
+5. 几何帧是烘焙事件驱动的一次性帧,服务器缓存并按新连接**重放**
+6. 执行计划变更(发射器/作用半径可能变)→ **全量重生**粒子(只重生死亡
+   粒子救不回旧位置整批);粒子沿场线沉降属正确物理,演示需手动 respawn
+7. **所有帧坐标统一 Three.js 约定 (x,y,z)→(x,z,-y)**:粒子帧(encoder.h)
+   与几何帧(build_geom_frame)必须一致;几何帧漏映射会让 GSM 极轴躺在
+   场景 Z 上,磁极横置

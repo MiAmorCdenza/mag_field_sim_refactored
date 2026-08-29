@@ -2,11 +2,16 @@
 window.protocol = (function () {
     "use strict";
 
-    const ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.binaryType = "arraybuffer";
+    // WS 在注册表就绪后连接(见 boot):否则 init_config 的 loadGraph
+    // 会因节点类型未注册而整图跳过(竞态,曾导致空图 + 无渲染项)
+    let ws = null;
 
     let serverGraph = null;
     const debounceTimers = {};
+
+    function wsSend(obj) {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    }
 
     // ---- 小工具 ----
     window.toast = function (msg) {
@@ -66,7 +71,7 @@ window.protocol = (function () {
         } catch (e) { /* ignore */ }
     };
 
-    // ---- 启动:拉取节点注册表 ----
+    // ---- 启动:拉取节点注册表 → 再连 WS(避免 init_config 竞态)----
     async function boot() {
         try {
             const types = await fetch("/api/nodes").then(r => r.json());
@@ -75,31 +80,38 @@ window.protocol = (function () {
         } catch (e) {
             window.toast("节点注册表加载失败: " + e);
         }
+        connect();
     }
 
     // ---- 接收 ----
-    ws.onopen = () => setStatus("已连接", true);
-    ws.onclose = () => setStatus("断开", false);
-    ws.onerror = () => setStatus("错误", false);
+    function connect() {
+        ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.binaryType = "arraybuffer";
+        ws.onopen = () => setStatus("已连接", true);
+        ws.onclose = () => setStatus("断开", false);
+        ws.onerror = () => setStatus("错误", false);
 
-    ws.onmessage = (e) => {
-        if (typeof e.data === "string") {
-            handleText(JSON.parse(e.data));
-        } else if (e.data instanceof ArrayBuffer) {
-            // 二进制帧 → 渲染宿主分发(按帧头 type/kind 路由到订阅渲染项)
-            try {
-                const view = new DataView(e.data);
-                const hlen = view.getUint32(0, true);
-                const header = JSON.parse(new TextDecoder().decode(
-                    new Uint8Array(e.data, 4, hlen)));
-                const kind = header.type === "s" ? "particles"
-                    : (header.kind || header.type || "unknown");
-                window.renderHost && window.renderHost.dispatch(kind, e.data, header);
-            } catch (err) {
-                window.uiLog && window.uiLog("error", "frame_parse", String(err));
+        ws.onmessage = (e) => {
+            if (typeof e.data === "string") {
+                handleText(JSON.parse(e.data));
+            } else if (e.data instanceof ArrayBuffer) {
+                // 二进制帧 → 渲染宿主分发(按帧头 type/kind 路由到订阅渲染项)
+                try {
+                    const view = new DataView(e.data);
+                    const hlen = view.getUint32(0, true);
+                    const header = JSON.parse(new TextDecoder().decode(
+                        new Uint8Array(e.data, 4, hlen)));
+                    // 渲染项订阅约定:粒子帧 = "particles";
+                    // 几何帧 = "geometry:" + header.kind(field_lines/efield_lines/…)
+                    const kind = header.type === "s" ? "particles"
+                        : "geometry:" + (header.kind || header.type || "unknown");
+                    window.renderHost && window.renderHost.dispatch(kind, e.data, header);
+                } catch (err) {
+                    window.uiLog && window.uiLog("error", "frame_parse", String(err));
+                }
             }
-        }
-    };
+        };
+    }
 
     function handleText(m) {
         if (m.type === "init_config") {
@@ -129,6 +141,8 @@ window.protocol = (function () {
         } else if (m.type === "registry") {
             window.editor.initRegistry(m.types);
             window.toast("🔌 插件热更新:节点面板已刷新");
+        } else if (m.type === "plan_status") {
+            if (m.slow_path) window.toast("⚠ 粒子计划含未知算子:慢路径(slow_path)");
         }
     }
 
@@ -141,7 +155,7 @@ window.protocol = (function () {
                 return;
             }
         }
-        ws.send(JSON.stringify({ type: "graph.upload", graph: doc }));
+        wsSend({ type: "graph.upload", graph: doc });
         window.uiLog("info", "graph_upload", "图已上传,服务器开始烘焙",
             { nodes: doc.nodes.length, edges: doc.edges.length });
         window.toast("图已上传,服务器开始烘焙");
@@ -153,16 +167,16 @@ window.protocol = (function () {
         const key = jsonId + ":" + name;
         clearTimeout(debounceTimers[key]);
         debounceTimers[key] = setTimeout(() => {
-            ws.send(JSON.stringify({ type: "node.param", node: jsonId, name, value }));
+            wsSend({ type: "node.param", node: jsonId, name, value });
         }, 250);
     }
 
-    function respawn() { ws.send(JSON.stringify({ type: "respawn" })); }
+    function respawn() { wsSend({ type: "respawn" }); }
     function resetToServer() { if (serverGraph) window.editor.loadGraph(serverGraph); }
 
     document.getElementById("ptc-input").addEventListener("change", (e) => {
         const n = Math.max(1, parseInt(e.target.value) || 100);
-        ws.send(JSON.stringify({ type: "set_particle_count", value: n }));
+        wsSend({ type: "set_particle_count", value: n });
     });
 
     boot();

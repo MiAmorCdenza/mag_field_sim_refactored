@@ -19,6 +19,10 @@ surrogate/*.pt
 # 可执行文件
 MagFieldSim_Server.exe
 msh23_model/msh23_test.exe
+server/tests/*.exe
+server/tests/*.dll
+server/tests/*.lib
+server/tests/*.exp
 
 # Python 缓存
 __pycache__/

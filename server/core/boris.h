@@ -194,16 +194,27 @@ private:
     bool stop_ = false;
 };
 
+// 共享批次线程池:全进程单实例,step_parallel 与 advancers.h 的四内核复用。
+inline StepThreadPool& shared_pool() {
+    static StepThreadPool pool([] {
+        int n = (int)std::thread::hardware_concurrency();
+        if (n == 0) n = 4;
+        return (size_t)std::max(1, n);
+    }());
+    return pool;
+}
+
+// 批次并行入口(任一推进内核的热路径)
+inline void particles_parallel_for(
+    size_t total, const std::function<void(size_t, size_t, size_t)>& fn) {
+    if (total == 0) return;
+    shared_pool().parallel_for(total, fn);
+}
+
 // 多线程并行步进(持久线程池分块)
 inline void step_parallel(Particles& p, const IntegratorConfig& cfg,
                           const ForceTables& tables) {
-    int n = (int)p.count;
-    if (n == 0) return;
-    int n_threads = (int)std::thread::hardware_concurrency();
-    if (n_threads == 0) n_threads = 4;
-    if (n_threads > n) n_threads = n;
-    static StepThreadPool pool((size_t)std::max(1, n_threads));
-    pool.parallel_for((size_t)n, [&](size_t, size_t start, size_t end) {
-        for (size_t i = start; i < end; ++i) boris_step(p, (size_t)i, cfg, tables);
+    particles_parallel_for(p.count, [&](size_t, size_t start, size_t end) {
+        for (size_t i = start; i < end; ++i) boris_step(p, i, cfg, tables);
     });
 }

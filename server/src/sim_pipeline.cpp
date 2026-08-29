@@ -1,11 +1,44 @@
 #include "sim_pipeline.h"
-#include "encoder.h"
 
-SimPipeline::SimPipeline(const PipelineConfig& cfg)
-    : emitter(cfg.emitter), icfg(cfg.integrator),
-      steps_per_frame(cfg.steps_per_frame), max_range(cfg.integrator.max_range) {
+#include "encoder.h"
+#include "../core/plan_compiler.h"
+
+SimPipeline::SimPipeline(const PipelineConfig& cfg) : emitter(cfg.emitter) {
     particles.resize((size_t)cfg.particle_count);
+    Plan p = plancomp::make_default_plan(cfg.emitter, cfg.steps_per_frame,
+                                         cfg.integrator);
+    std::string err;
+    if (!set_plan(p, err)) {
+        // 后备计划必然合法;防御性保留(内核注册表缺失时无法推进)
+    }
     respawn();
+}
+
+bool SimPipeline::set_plan(const Plan& p, std::string& err) {
+    for (const auto& op : p.ops) {
+        if (op.kind == OpKind::Step && find_advancer(op.step.kernel) == nullptr) {
+            err = "未知推进内核: " + op.step.kernel;
+            return false;
+        }
+    }
+    plan = p;
+    max_range = 90.0;
+    for (const auto& op : plan.ops) {
+        if (op.kind == OpKind::Step && op.step.max_range > max_range)
+            max_range = op.step.max_range;
+    }
+    // 图内发射器节点(node_id != "__default")→ 重建发射器并接管;
+    // 后备计划的发射器保持由服务器 st.emitter 驱动(legacy 兼容)
+    has_emitter_op = false;
+    for (const auto& op : plan.ops) {
+        if (op.kind != OpKind::Emitter) continue;
+        if (op.node_id != "__default") {
+            emitter = Emitter(op.emitter.cfg);
+            has_emitter_op = true;
+        }
+        break;  // 首个 EmitterOp 生效(v1)
+    }
+    return true;
 }
 
 bool SimPipeline::install_baked(const BakedField& f, std::string& err) {
@@ -36,6 +69,13 @@ bool SimPipeline::install_baked(const BakedField& f, std::string& err) {
     return true;
 }
 
+const Table3D* SimPipeline::table_for(const std::string& slot) const {
+    if (slot == "B" && b_table.has_data()) return &b_table;
+    if (slot == "E" && e_table.has_data()) return &e_table;
+    if (slot == "drag" && drag_table.has_data()) return &drag_table;
+    return nullptr;
+}
+
 void SimPipeline::respawn() {
     for (size_t i = 0; i < particles.count; ++i) {
         if (particles.status[i] == 1 || particles.status[i] == 2 ||
@@ -45,12 +85,27 @@ void SimPipeline::respawn() {
     }
 }
 
+void SimPipeline::respawn_all() {
+    for (size_t i = 0; i < particles.count; ++i)
+        emitter.spawn(particles, i, ++next_id_);
+}
+
 void SimPipeline::step_frame() {
-    ForceTables ft;
-    ft.b = b_table.has_data() ? &b_table : nullptr;
-    ft.e = e_table.has_data() ? &e_table : nullptr;
-    ft.drag = drag_table.has_data() ? &drag_table : nullptr;
-    for (int s = 0; s < steps_per_frame; ++s) step_parallel(particles, icfg, ft);
+    for (const auto& op : plan.ops) {
+        if (op.kind != OpKind::Step) continue;
+        const IBatchAdvancer* adv = find_advancer(op.step.kernel);
+        if (!adv) continue;  // set_plan 已校验;防御
+        AdvanceInput in;
+        in.b = table_for(op.step.b_slot);
+        in.e = table_for(op.step.e_slot);
+        in.drag = table_for(op.step.drag_slot);
+        in.dt = op.step.dt;
+        in.max_range = op.step.max_range;
+        in.enable_gravity = op.step.enable_gravity;
+        in.gravity_mult = op.step.gravity_mult;
+        in.substep_cap = op.step.substep_cap;
+        for (int s = 0; s < op.step.substeps; ++s) adv->step(particles, in);
+    }
 }
 
 void SimPipeline::encode(std::vector<uint8_t>& out) const {

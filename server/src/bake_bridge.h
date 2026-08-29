@@ -57,6 +57,9 @@ public:
     // 渲染域绑定表(渲染节点 → 上游数据契约)
     bool render_bindings(std::string& out_json, std::string& err);
 
+    // 粒子域执行计划(粒子子图 → C++ Plan;L1 图驱动管线)
+    bool particle_plan(std::string& out_json, std::string& err);
+
     // 重新扫描插件目录(热加载新节点:丢文件即注册)
     bool rescan(std::string& err);
 

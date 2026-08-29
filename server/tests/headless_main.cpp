@@ -19,6 +19,7 @@
 #include "particles.h"
 #include "emitters.h"
 #include "boris.h"
+#include "advancers.h"
 #include "encoder.h"
 #include "plan.h"
 
@@ -173,8 +174,81 @@ int main() {
         CHECK(id == 101 && x == 2.0f && z == 2.0f && st == 1, "解码往返一致(含坐标重映射)");
     }
 
-    std::printf("=== 5) 原生算子注册 ===\n");
-    CHECK(native_builtins().size() == 5, "5 个内置原生算子已注册");
+    std::printf("=== 5) 推进内核注册表与经典核 ===\n");
+    {
+        CHECK(find_advancer("boris") != nullptr, "boris 内核已注册");
+        CHECK(find_advancer("leapfrog") != nullptr, "leapfrog 内核已注册");
+        CHECK(find_advancer("rk4") != nullptr, "rk4 内核已注册");
+        CHECK(find_advancer("verlet") != nullptr, "verlet 内核已注册");
+        CHECK(find_advancer("no_such") == nullptr, "未知内核返回 nullptr");
+        CHECK(all_advancers().size() == 4, "内核注册表共 4 项");
+
+        // Boris 内核与 legacy boris_step 位级一致(默认图验收基准)
+        {
+            Particles a, b;
+            a.resize(1);
+            b.resize(1);
+            a.id[0] = b.id[0] = 0;
+            a.x[0] = b.x[0] = 3.0; a.y[0] = b.y[0] = 0.0; a.z[0] = b.z[0] = 0.0;
+            a.vx[0] = b.vx[0] = 0.0; a.vy[0] = b.vy[0] = 0.02; a.vz[0] = b.vz[0] = 0.01;
+            a.q[0] = b.q[0] = 1.0; a.m[0] = b.m[0] = 1.0;
+            a.status[0] = b.status[0] = 0;
+            AdvanceInput in;
+            in.b = &b_table;
+            in.dt = 0.01;
+            in.max_range = 90.0;
+            IntegratorConfig cfg;
+            cfg.dt = 0.01;
+            cfg.max_range = 90.0;
+            ForceTables ft{&b_table, nullptr, nullptr};
+            for (int s = 0; s < 100; ++s) {
+                find_advancer("boris")->step(a, in);
+                boris_step(b, 0, cfg, ft);
+            }
+            CHECK(a.x[0] == b.x[0] && a.y[0] == b.y[0] && a.z[0] == b.z[0] &&
+                      a.vx[0] == b.vx[0] && a.vy[0] == b.vy[0] && a.vz[0] == b.vz[0],
+                  "Boris 内核与 legacy boris_step 位级一致");
+        }
+
+        // 经典核冒烟:纯偶极场 200 子步,全部有限。
+        // leapfrog/verlet:磁部分 Boris 旋转精确保模 → |v| 漂移 ~0(容差 1%)
+        // rk4:全经典 RK4 对纯回旋耗散(教科书特性)→ 容差 10%
+        struct KernelCase { const char* name; double tol; };
+        const std::vector<KernelCase> cases = {
+            {"leapfrog", 0.01}, {"rk4", 0.10}, {"verlet", 0.01},
+        };
+        for (const auto& kc : cases) {
+            const char* k = kc.name;
+            Particles p;
+            p.resize(1);
+            p.id[0] = 0;
+            p.x[0] = 3.0; p.y[0] = 0.0; p.z[0] = 0.0;
+            p.vx[0] = 0.0; p.vy[0] = 0.02; p.vz[0] = 0.01;
+            p.q[0] = 1.0; p.m[0] = 1.0; p.color[0] = 0xffffff; p.status[0] = 0;
+            AdvanceInput in;
+            in.b = &b_table;
+            in.dt = 0.002;
+            in.max_range = 90.0;
+            const auto* adv = find_advancer(k);
+            double v0 = std::sqrt(p.vx[0] * p.vx[0] + p.vy[0] * p.vy[0] +
+                                  p.vz[0] * p.vz[0]);
+            for (int s = 0; s < 200; ++s) adv->step(p, in);
+            double v1 = std::sqrt(p.vx[0] * p.vx[0] + p.vy[0] * p.vy[0] +
+                                  p.vz[0] * p.vz[0]);
+            bool finite = std::isfinite(p.x[0]) && std::isfinite(p.y[0]) &&
+                          std::isfinite(p.z[0]) && std::isfinite(p.vx[0]) &&
+                          std::isfinite(p.vy[0]) && std::isfinite(p.vz[0]);
+            bool drift_ok = std::abs(v1 - v0) / v0 < kc.tol;
+            char msg[160];
+            std::snprintf(msg, sizeof(msg),
+                          "%s 内核 200 步:有限=%d 速度漂移 %.3f%% (容差 %.0f%%)",
+                          k, (int)finite, (v1 - v0) / v0 * 100.0, kc.tol * 100.0);
+            CHECK(finite && drift_ok, msg);
+        }
+    }
+
+    std::printf("=== 6) 原生算子注册 ===\n");
+    CHECK(native_builtins().size() == 6, "6 个内置原生算子已注册");
 
     std::printf(failures ? "\n[%d 项失败]\n" : "\n全部通过 ✅\n", failures);
     return failures ? 1 : 0;

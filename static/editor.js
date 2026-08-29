@@ -33,6 +33,8 @@ window.editor = (function () {
     // ---------- 节点类型注册 ----------
     // 渲染域节点专属色(右栏渲染管线视觉区分)
     const RENDER_NODE_COLOR = "#4a3a6a";
+    // 粒子域节点专属色(中列粒子管线视觉区分)
+    const PARTICLE_NODE_COLOR = "#3a5a4a";
 
     function makeNodeClass(spec) {
         function T(title) {
@@ -56,6 +58,9 @@ window.editor = (function () {
             if (spec.domain === "render") {
                 this.color = RENDER_NODE_COLOR;
                 this.bgcolor = "#241d33";
+            } else if (spec.domain === "particle") {
+                this.color = PARTICLE_NODE_COLOR;
+                this.bgcolor = "#1d2b24";
             }
         }
         T.title = spec.name || spec.type;
@@ -389,7 +394,9 @@ registerRenderItem({
         if (!nodes.length) return;
         const domainOf = n => n._spec?.domain || "field";
         const renderNodes = nodes.filter(n => domainOf(n) === "render");
-        const dataNodes = nodes.filter(n => domainOf(n) !== "render");
+        const particleNodes = nodes.filter(n => domainOf(n) === "particle");
+        const dataNodes = nodes.filter(
+            n => domainOf(n) !== "render" && domainOf(n) !== "particle");
 
         const adj = {};
         nodes.forEach(n => { adj[n.id] = []; });
@@ -454,6 +461,32 @@ registerRenderItem({
         }
         orphans.forEach((n, i) => { n.pos = [x, 60 + i * gapY]; });
         if (orphans.length) x += gapX;
+
+        // ---- 粒子域:中列垂直链(发射器→积分器→编码器,与引擎同算法) ----
+        const pchain = [];
+        const pseen = new Set();
+        const pstarts = particleNodes.filter(n =>
+            !Object.values(graph.links || {}).some(
+                l => l.target_id === n.id &&
+                     particleNodes.some(p => p.id === l.origin_id)));
+        const pq = pstarts.length
+            ? [...pstarts]
+            : (particleNodes.length ? [particleNodes[0]] : []);
+        while (pq.length) {
+            const n = pq.shift();
+            if (pseen.has(n.id)) continue;
+            pseen.add(n.id);
+            pchain.push(n);
+            for (const m of adj[n.id]) {
+                if (particleNodes.some(p => p.id === m) && !pseen.has(m)) pq.push(
+                    particleNodes.find(p => p.id === m));
+            }
+        }
+        particleNodes.forEach(n => { if (!pseen.has(n.id)) pchain.push(n); });
+        if (pchain.length) {
+            pchain.forEach((n, i) => { n.pos = [x, 60 + i * gapY]; });
+            x += gapX;
+        }
 
         // ---- 渲染域:右侧单列垂直链(起始节点在链顶) ----
         const chain = [];

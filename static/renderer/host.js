@@ -62,29 +62,32 @@ window.renderHost = (function () {
         rotAxis, new THREE.Vector3(), 2.6, 0x00ff00, 0.3, 0.2));
 
     // ---- 渲染项实例表 ----
-    const items = new Map();  // id -> {spec, instance}
+    const items = new Map();  // id -> 渲染项实例(registry 的 per-node 拷贝)
 
     function registerItem(spec) {
         if (!spec || !spec.id) throw new Error("渲染项必须提供 id");
         if (items.has(spec.id)) unregisterItem(spec.id);
-        const inst = { spec };
+        // spec 本身就是实例对象:registry.instantiate 为每个节点做了
+        // Object.assign({}, tpl) 拷贝,方法(spec.onData 等)与状态
+        // (this.group/this.meshes)必须同体 —— 包装对象会破坏 this 链
         try {
-            spec.setup.call(inst, layers[spec.layer || 1], THREE, {
+            spec.setup.call(spec, layers[spec.layer || 1], THREE, {
                 host: exports, dispatch, applyParams,
             });
         } catch (e) {
             console.error("[renderHost] 渲染项 setup 失败:", spec.id, e);
             throw e;
         }
-        items.set(spec.id, inst);
-        console.log("[renderHost] 渲染项已挂载:", spec.id, "(layer", spec.layer || 1 + ")");
-        return inst;
+        items.set(spec.id, spec);
+        console.log("[renderHost] 渲染项已挂载:", spec.id,
+                    "(layer " + (spec.layer || 1) + ")");
+        return spec;
     }
 
     function unregisterItem(id) {
         const inst = items.get(id);
         if (!inst) return;
-        try { inst.spec.dispose && inst.spec.dispose.call(inst); }
+        try { inst.dispose && inst.dispose.call(inst); }
         catch (e) { console.warn("[renderHost] dispose 失败:", id, e); }
         items.delete(id);
     }
@@ -92,12 +95,12 @@ window.renderHost = (function () {
     // ---- 帧分发:按 kind 路由到订阅项 ----
     function dispatch(kind, frame, meta) {
         for (const inst of items.values()) {
-            const subs = inst.spec.subscribes || [];
+            const subs = inst.subscribes || [];
             if (subs.includes(kind)) {
                 try {
-                    inst.spec.onData.call(inst, frame, meta || {});
+                    inst.onData.call(inst, frame, meta || {});
                 } catch (e) {
-                    console.error("[renderHost] 渲染项", inst.spec.id, "onData 失败:", e);
+                    console.error("[renderHost] 渲染项", inst.id, "onData 失败:", e);
                 }
             }
         }
@@ -107,8 +110,8 @@ window.renderHost = (function () {
     function applyParams(itemId, params) {
         const inst = items.get(itemId);
         if (!inst) return false;
-        if (inst.spec.onParam) {
-            try { inst.spec.onParam.call(inst, params || {}); }
+        if (inst.onParam) {
+            try { inst.onParam.call(inst, params || {}); }
             catch (e) { console.error("[renderHost] onParam 失败:", itemId, e); }
         }
         return true;

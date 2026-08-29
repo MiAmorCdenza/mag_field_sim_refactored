@@ -185,7 +185,8 @@ class Graph:
 
     def auto_layout(self, gap_x=240.0, gap_y=110.0):
         """域感知层次化排布:
-        - 场域(左)+ 粒子域(中):拓扑深度定列,同列重心排序,汇节点右对齐
+        - 场域(左):拓扑深度定列,同列重心排序,汇节点右对齐
+        - 粒子域(中):单列垂直链(发射器→积分器→编码器,沿链边排布)
         - 渲染域(右):单列垂直链(渲染管线起始在最上,沿链边排布)
         - 孤立数据节点排在数据域最后一列之后
         """
@@ -195,7 +196,9 @@ class Graph:
             return self.nodes[nid].spec().get("domain", "field")
 
         render_nodes = [n for n in self.nodes if domain_of(n) == "render"]
-        data_nodes = [n for n in self.nodes if domain_of(n) != "render"]
+        particle_nodes = [n for n in self.nodes if domain_of(n) == "particle"]
+        data_nodes = [n for n in self.nodes
+                      if domain_of(n) not in ("render", "particle")]
 
         # ---- 全图邻接(渲染链 BFS 用) ----
         adj_all = {nid: [] for nid in self.nodes}
@@ -262,6 +265,31 @@ class Graph:
         for i, n in enumerate(orphans):
             self._pos[n] = [x, 60.0 + i * gap_y]
         if orphans:
+            x += gap_x
+
+        # ---- 粒子域:中列垂直链(发射器→积分器→编码器,与渲染链同约定) ----
+        pchain = []
+        pseen = set()
+        starts = [n for n in particle_nodes
+                  if not any(s in particle_nodes
+                             for (_d2, _), (s, _) in self.inputs_map.items()
+                             if _d2 == n)]
+        queue = deque(starts or ([particle_nodes[0]] if particle_nodes else []))
+        while queue:
+            n = queue.popleft()
+            if n in pseen:
+                continue
+            pseen.add(n)
+            pchain.append(n)
+            for m in adj_all[n]:
+                if m in particle_nodes and m not in pseen:
+                    queue.append(m)
+        for n in particle_nodes:
+            if n not in pseen:
+                pchain.append(n)
+        if pchain:
+            for i, n in enumerate(pchain):
+                self._pos[n] = [x, 60.0 + i * gap_y]
             x += gap_x
 
         # ---- 渲染域:右侧单列垂直链 ----
@@ -347,6 +375,84 @@ class Graph:
             })
         return out
 
+    # ================= 粒子域 =================
+    _PARTICLE_OP_KINDS = {
+        "particle_emitter": "emitter",
+        "boris_integrator": "step",
+        "leapfrog_integrator": "step",
+        "rk4_integrator": "step",
+        "verlet_integrator": "step",
+        "output_encoder": "encode",
+    }
+
+    def particle_plan(self):
+        """粒子域执行计划(C++ 原生管线消费,L1)。
+
+        返回 {"ops": [...], "slow_path": bool, "count": n}
+        - 顺序 = 粒子域链拓扑(prev/next 边):发射器 → 积分器 → 编码器
+        - 数据端口(b/e/drag)→ 槽位名:上游 output_slot 的 slot 参数,
+          或 outputs 中声明该节点的槽位;未连接 = None
+        - step 算子的 kernel = 类型名去 "_integrator" 后缀
+        - 粒子域内未知节点类型 → 该节点跳过并置 slow_path(成本徽标)
+        """
+        pnodes = [nid for nid, n in self.nodes.items()
+                  if n.spec().get("domain") == "particle"]
+        indeg = {n: 0 for n in pnodes}
+        adj = {n: [] for n in pnodes}
+        for (dst, _), (src, _) in self.inputs_map.items():
+            if dst in adj and src in adj:
+                adj[src].append(dst)
+                indeg[dst] += 1
+        queue = [n for n in pnodes if indeg[n] == 0]
+        order = []
+        while queue:
+            n = queue.pop(0)
+            order.append(n)
+            for m in adj[n]:
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    queue.append(m)
+        for n in pnodes:
+            if n not in order:  # 环已在 load_json 拒绝;防御兜底
+                order.append(n)
+
+        def slot_of(nid):
+            """节点输出 → 槽位名(output_slot 或 outputs 声明)。"""
+            node = self.nodes.get(nid)
+            if node is None:
+                return None
+            if node.spec().get("type") == "output_slot":
+                return node.params.get("slot", "unnamed")
+            for name, (sid, _sport) in self.outputs.items():
+                if sid == nid:
+                    return name
+            return None
+
+        ops = []
+        slow = False
+        for nid in order:
+            node = self.nodes[nid]
+            t = node.spec()["type"]
+            kind = self._PARTICLE_OP_KINDS.get(t)
+            if kind is None:
+                slow = True  # 未知粒子域节点:不编译,成本徽标
+                continue
+            ins = {}
+            for (dst, dport), (src, _sport) in self.inputs_map.items():
+                if dst == nid:
+                    ins[dport] = src
+            op = {"kind": kind, "node": nid, "type": t,
+                  "params": dict(node.params), "inputs": ins}
+            if kind == "step":
+                op["kernel"] = t[:-len("_integrator")]
+                op["slots"] = {
+                    "b": slot_of(ins["b"]) if ins.get("b") else None,
+                    "e": slot_of(ins["e"]) if ins.get("e") else None,
+                    "drag": slot_of(ins["drag"]) if ins.get("drag") else None,
+                }
+            ops.append(op)
+        return {"ops": ops, "slow_path": slow, "count": len(ops)}
+
     # ================= 求值与烘焙 =================
     def _node_lattice(self, node_id):
         """节点有效点阵(v1:图级单点阵;节点级点阵为后续优化)。"""
@@ -379,9 +485,10 @@ class Graph:
     def _eval_node(self, node_id):
         node = self.nodes[node_id]
         spec = node.spec()
-        if spec.get("domain") == "render":
+        if spec.get("domain") in ("render", "particle"):
+            label = {"render": "渲染域", "particle": "粒子域"}[spec.get("domain")]
             raise GraphError(
-                f"渲染域节点 {node_id}({spec.get('type')})是声明节点,"
+                f"{label}节点 {node_id}({spec.get('type')})是声明节点,"
                 f"不参与数值求值")
 
         # 1) 收集原始输入(广播前)

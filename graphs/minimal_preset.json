@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "lattice": {"preset": "tiny"},
+  "nodes": [
+    {"id": "dip", "type": "dipole", "input_defaults": {"ps": 0.5}},
+    {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
+    {"id": "pe", "type": "particle_emitter",
+     "params": {"mode": 1, "v_base": 400.0, "max_range": 15.0}},
+    {"id": "bi", "type": "boris_integrator",
+     "params": {"dt": 0.01, "substeps": 5, "max_range": 15.0}},
+    {"id": "oe", "type": "output_encoder"},
+    {"id": "rp", "type": "render_pipeline_start"},
+    {"id": "rfl", "type": "render_item_field_lines"},
+    {"id": "rpt", "type": "render_item_particles"}
+  ],
+  "edges": [
+    {"from": ["dip", "field"], "to": ["ob", "field"]},
+    {"from": ["ob", "out"], "to": ["bi", "b"]},
+    {"from": ["pe", "next"], "to": ["bi", "prev"]},
+    {"from": ["bi", "next"], "to": ["oe", "prev"]},
+    {"from": ["rp", "next"], "to": ["rfl", "prev"]},
+    {"from": ["rfl", "next"], "to": ["rpt", "prev"]},
+    {"from": ["ob", "out"], "to": ["rfl", "data"]}
+  ],
+  "outputs": {}
+}

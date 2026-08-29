@@ -23,7 +23,9 @@ registerRenderItem({
         const header = JSON.parse(new TextDecoder().decode(
             new Uint8Array(buf, 4, hlen)));
         const n = header.n;
-        const counts = {};
+        // 每帧重置计数:否则 count 只增不减,矩阵区残留旧帧数据
+        // (旧帧尾巴渲染为幽灵粒子,并导致计数虚高)
+        Object.values(this.meshes).forEach(m => { m.count = 0; });
         let off = 4 + hlen;
         for (let i = 0; i < n; i++) {
             const px = view.getFloat32(off + 4, true);
@@ -42,11 +44,9 @@ registerRenderItem({
                 m.setMatrixAt(m.count, this.dummy.matrix);
                 m.count++;
             }
-            counts[hex] = m.count;
         }
-        Object.keys(this.meshes).forEach(hex => {
-            this.meshes[hex].count = Math.min(counts[hex] || 0, this.MAX);
-            this.meshes[hex].instanceMatrix.needsUpdate = true;
+        Object.values(this.meshes).forEach(m => {
+            m.instanceMatrix.needsUpdate = true;
         });
     },
 

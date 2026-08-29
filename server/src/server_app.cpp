@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -20,6 +21,7 @@
 #include "encoder.h"
 #include "../core/logger.h"
 #include "../core/tracer.h"
+#include "../core/plan_compiler.h"
 
 using json = nlohmann::json;
 
@@ -47,6 +49,10 @@ struct SharedState {
     int particle_count = 100;
     uint64_t graph_version = 0;      // 由 WS 线程/主线程维护,仿真线程只读
     std::string render_bindings_json = "[]";  // 渲染域绑定表(引擎权威)
+    std::string particle_plan_json = "{}";    // 粒子域执行计划(引擎权威)
+    bool plan_dirty = false;
+    bool plan_slow_path = false;
+    std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     EmitterConfig emitter;
     std::string bake_error;
     bool bake_failed = false;
@@ -124,6 +130,8 @@ std::string default_graph_json() {
 }  // namespace
 
 // 几何帧序列化:[u32 meta_len][JSON meta][每线:u8 class u8 reason u16 n f32xyz×n]
+// 坐标重映射与粒子帧一致(Three.js 约定):(x, y, z) → (x, z, -y)
+// 即 GSM 极轴(z)→ 场景 Y(向上);不做此映射磁轴会横躺在场景 Z 上
 std::string build_geom_frame(const std::string& kind, const std::string& node_id,
                              uint64_t seq, const std::string& slot,
                              const std::vector<std::pair<int, FieldLine>>& lines) {
@@ -144,8 +152,8 @@ std::string build_geom_frame(const std::string& kind, const std::string& node_id
         out.append((const char*)&n, 2);
         for (size_t i = 0; i < n; ++i) {
             float fx = (float)line.pts[i].x;
-            float fy = (float)line.pts[i].y;
-            float fz = (float)line.pts[i].z;
+            float fy = (float)line.pts[i].z;
+            float fz = -(float)line.pts[i].y;
             out.append((const char*)&fx, 4);
             out.append((const char*)&fy, 4);
             out.append((const char*)&fz, 4);
@@ -165,7 +173,9 @@ struct ServerApp::Impl {
     std::mutex conn_m;
     std::unordered_set<crow::websocket::connection*> conns;
 
-    SimPipeline pipeline;
+    // 仿真管线:配置确定后构造(unique_ptr —— 隐式移动赋值在 MSVC 14.51
+    // 下触发崩溃,见 git log/REFACTOR_PLAN 维护约定)
+    std::unique_ptr<SimPipeline> pipeline;
 
     void broadcast_text(const std::string& s) {
         std::lock_guard<std::mutex> g(conn_m);
@@ -277,9 +287,9 @@ struct ServerApp::Impl {
             if (it == slot_of.end()) continue;
             const std::string& slot = it->second;
             const Table3D* table = nullptr;
-            if (slot == "B") table = &pipeline.b_table;
-            else if (slot == "E") table = &pipeline.e_table;
-            else if (slot == "drag") table = &pipeline.drag_table;
+            if (slot == "B") table = &pipeline->b_table;
+            else if (slot == "E") table = &pipeline->e_table;
+            else if (slot == "drag") table = &pipeline->drag_table;
             if (!table || !table->has_data()) continue;
             if (type != "render_item_field_lines" && type != "render_item_efield_lines")
                 continue;
@@ -288,7 +298,7 @@ struct ServerApp::Impl {
             json prm = b.value("params", json::object());
             if (prm.contains("dsmax")) tcfg.dsmax = prm["dsmax"].get<double>();
             if (prm.contains("err")) tcfg.err = prm["err"].get<double>();
-            tcfg.rlim = std::max(15.0, pipeline.max_range * 0.98);
+            tcfg.rlim = std::max(15.0, pipeline->max_range * 0.98);
 
             SeedSet seeds = build_seeds(SeedConfig{});
             std::vector<std::pair<int, FieldLine>> lines;
@@ -306,6 +316,11 @@ struct ServerApp::Impl {
             std::string kind =
                 type == "render_item_field_lines" ? "field_lines" : "efield_lines";
             std::string frame = build_geom_frame(kind, nid, seq, slot, lines);
+            {
+                // 缓存:几何帧是烘焙事件驱动的一次性帧,新连接需补发
+                std::lock_guard<std::mutex> g(st.m);
+                st.geom_cache[nid] = frame;
+            }
             broadcast_bin(frame);
             MFL("render", "geom_frame", Info, "几何帧已广播",
                 (nlohmann::json{{"kind", kind}, {"node", nid},
@@ -324,6 +339,69 @@ struct ServerApp::Impl {
         while (st.running) {
             auto frame_start = std::chrono::steady_clock::now();
 
+            // 0) 应用执行计划(图/节点参数变更后;空计划 → 默认后备计划)
+            {
+                bool dirty = false;
+                std::string plan_json;
+                EmitterConfig em_cfg;
+                {
+                    std::lock_guard<std::mutex> g(st.m);
+                    dirty = st.plan_dirty;
+                    if (dirty) {
+                        plan_json = st.particle_plan_json;
+                        st.plan_dirty = false;
+                        em_cfg = st.emitter;
+                    }
+                }
+                if (dirty) {
+                    Plan plan;
+                    std::string perr;
+                    bool ok = false;
+                    try {
+                        auto doc = json::parse(plan_json);
+                        ok = plancomp::plan_from_json(doc, plan, perr);
+                    } catch (const std::exception& e) {
+                        perr = e.what();
+                    }
+                    if (!ok || plan.ops.empty()) {
+                        if (!ok)
+                            MFL("plan", "parse_failed", Warn, "粒子计划解析失败,回退后备计划",
+                                (nlohmann::json{{"error", perr}}));
+                        plan = plancomp::make_default_plan(em_cfg, cfg.steps_per_frame,
+                                                           IntegratorConfig{});
+                    } else {
+                        // 图内发射器节点参数不含粒子类型列表(v1)→ 沿用服务器默认
+                        for (auto& op : plan.ops) {
+                            if (op.kind == OpKind::Emitter && op.emitter.cfg.types.empty())
+                                op.emitter.cfg.types = em_cfg.types;
+                        }
+                    }
+                    if (pipeline->set_plan(plan, perr)) {
+                        bool slow = plan.slow_path;
+                        bool changed = false;
+                        {
+                            std::lock_guard<std::mutex> g(st.m);
+                            changed = (st.plan_slow_path != slow);
+                            st.plan_slow_path = slow;
+                        }
+                        if (changed) {
+                            json m{{"type", "plan_status"}, {"slow_path", slow}};
+                            broadcast_text(m.dump());
+                        }
+                        // 计划变更 → 全量重生:发射器/作用半径可能已换,
+                        // 旧位置粒子(如 r=90)会被新 max_range 判死,
+                        // 只重生死亡粒子救不回整批
+                        pipeline->respawn_all();
+                        MFL("plan", "applied", Info, "执行计划已应用",
+                            (nlohmann::json{{"ops", plan.ops.size()},
+                                            {"slow_path", slow}}));
+                    } else {
+                        MFL("plan", "rejected", Error, "执行计划校验失败",
+                            (nlohmann::json{{"error", perr}}));
+                    }
+                }
+            }
+
             // 1) 应用完成的烘焙结果
             {
                 std::optional<std::map<std::string, BakedField>> done;
@@ -337,7 +415,7 @@ struct ServerApp::Impl {
                 }
                 if (done) {
                     std::string err;
-                    for (auto& [slot, field] : *done) pipeline.install_baked(field, err);
+                    for (auto& [slot, field] : *done) pipeline->install_baked(field, err);
                     uint64_t applied_seq = st.completed_seq;
                     broadcast_progress(applied_seq, "done");
                     MFL("bake", "bake_applied", Info, "烘焙结果已应用", (nlohmann::json{{"seq", applied_seq}, {"slots", done->size()}}));
@@ -360,25 +438,25 @@ struct ServerApp::Impl {
                     st.respawn_flag = false;
                     rebuild_emitter = st.emitter_dirty;
                     st.emitter_dirty = false;
-                    if (pipeline.particles.count != (size_t)st.particle_count) {
-                        pipeline.particles.resize((size_t)st.particle_count);
+                    if (pipeline->particles.count != (size_t)st.particle_count) {
+                        pipeline->particles.resize((size_t)st.particle_count);
                         respawn = true;
                     }
-                    if (rebuild_emitter) {
-                        pipeline.emitter = Emitter(st.emitter);
+                    if (rebuild_emitter && !pipeline->has_emitter_op) {
+                        pipeline->emitter = Emitter(st.emitter);
                         respawn = true;
                     }
                 }
-                if (respawn) pipeline.respawn();
+                if (respawn) pipeline->respawn();
             }
 
             // 3) 物理步进(首次烘焙完成前不积分:空表步进无物理意义)
-            if (pipeline.b_table.has_data()) pipeline.step_frame();
+            if (pipeline->b_table.has_data()) pipeline->step_frame();
 
             // 4) 广播(网络帧率)——仿真线程零 Python(红线)
             if (frame_count % interval == 0) {
                 std::vector<uint8_t> body;
-                pipeline.encode(body);
+                pipeline->encode(body);
                 uint64_t ver = 0;
                 {
                     std::lock_guard<std::mutex> g(st.m);
@@ -472,6 +550,14 @@ struct ServerApp::Impl {
             bridge.graph_json(st.graph_json, err);
             bridge.declared_outputs(st.slots, err);
             bridge.render_bindings(st.render_bindings_json, err);
+            std::string plan_json;
+            if (bridge.particle_plan(plan_json, err)) {
+                st.particle_plan_json = std::move(plan_json);
+                st.plan_dirty = true;
+            } else {
+                MFL("plan", "compile_failed", Warn, "初始粒子计划编译失败,使用后备计划",
+                    (nlohmann::json{{"error", err}}));
+            }
         }
         MFL("server", "graph_loaded", Info, "初始图加载完成", (nlohmann::json{{"slots", st.slots}, {"version", st.graph_version}}));
 
@@ -479,7 +565,7 @@ struct ServerApp::Impl {
         if (!bridge.release_main_thread())
             LOG_WARN("server", "gil_release_failed", "主线程 GIL 释放失败");
 
-        // 管线
+        // 管线(配置确定后构造;unique_ptr 见 Impl 成员注释)
         st.particle_count = cfg.particle_count;
         PipelineConfig pc;
         pc.particle_count = cfg.particle_count;
@@ -487,7 +573,7 @@ struct ServerApp::Impl {
         pc.emitter = st.emitter;
         pc.integrator.dt = 0.01;
         pc.integrator.max_range = 90.0;
-        pipeline = SimPipeline(pc);
+        pipeline = std::make_unique<SimPipeline>(pc);
 
         // 线程
         std::thread baker([this] { bake_worker(); });
@@ -512,6 +598,16 @@ struct ServerApp::Impl {
                           {"particles", st.particle_count},
                           {"version", ver}};
                 conn.send_text(init.dump());
+                // 几何帧重放(场线/电场线:烘焙完成后才产出,新连接补发)
+                std::vector<std::string> cached;
+                {
+                    std::lock_guard<std::mutex> g2(st.m);
+                    for (const auto& [k, v] : st.geom_cache) cached.push_back(v);
+                }
+                for (const auto& f : cached) conn.send_binary(f);
+                if (!cached.empty())
+                    MFL("render", "geom_replay", Debug, "几何帧已补发",
+                        (nlohmann::json{{"frames", cached.size()}}));
                 LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
             .onclose([this](crow::websocket::connection& conn, const std::string&) {
@@ -533,6 +629,8 @@ struct ServerApp::Impl {
                         uint64_t ver = 0;
                         std::string authoritative;
                         std::string rb_json;
+                        std::string plan_json;
+                        bool plan_ok = false;
                         {
                             std::lock_guard<std::mutex> g(bridge_m);
                             ok = bridge.load_graph(gjson, err);
@@ -542,6 +640,8 @@ struct ServerApp::Impl {
                                 ok = bridge.graph_json(authoritative, err) &&
                                      bridge.declared_outputs(slots, err) &&
                                      bridge.render_bindings(rb_json, err);
+                                // 粒子域执行计划(编译失败不拒绝图:回退旧计划)
+                                if (ok) plan_ok = bridge.particle_plan(plan_json, err);
                             }
                         }
                         if (ok) {
@@ -551,7 +651,15 @@ struct ServerApp::Impl {
                                 st.slots = slots;
                                 st.graph_version = ver;
                                 st.render_bindings_json = rb_json;
+                                st.geom_cache.clear();  // 图变了,旧几何帧作废(新烘焙重产)
+                                if (plan_ok) {
+                                    st.particle_plan_json = plan_json;
+                                    st.plan_dirty = true;
+                                }
                             }
+                            if (!plan_ok)
+                                MFL("plan", "compile_failed", Warn, "图上传后粒子计划编译失败",
+                                    (nlohmann::json{{"error", err}}));
                             submit_bake();  // 在 st.m 锁外提交(submit_bake 内部会再锁 st.m)
                         } else {
                             json e{{"type", "graph.error"}, {"message", err}};
@@ -568,10 +676,24 @@ struct ServerApp::Impl {
                             if (ok) ver = bridge.graph_version();
                         }
                         if (ok) {
+                            // 粒子域节点参数(如积分器 dt)→ 重编译执行计划
+                            std::string plan_json;
+                            bool plan_ok = false;
+                            {
+                                std::lock_guard<std::mutex> g(bridge_m);
+                                plan_ok = bridge.particle_plan(plan_json, err);
+                            }
                             {
                                 std::lock_guard<std::mutex> g(st.m);
                                 st.graph_version = ver;
+                                if (plan_ok) {
+                                    st.particle_plan_json = plan_json;
+                                    st.plan_dirty = true;
+                                }
                             }
+                            if (!plan_ok)
+                                MFL("plan", "compile_failed", Warn, "节点参数变更后粒子计划编译失败",
+                                    (nlohmann::json{{"error", err}}));
                             submit_bake();
                         } else {
                             json e{{"type", "graph.error"}, {"message", err}};

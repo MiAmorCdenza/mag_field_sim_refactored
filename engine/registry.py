@@ -80,10 +80,15 @@ class Registry:
         if not src or not os.path.exists(src):
             return False
         mod_name = f"_mfplugin_{os.path.basename(os.path.dirname(src))}_{os.path.basename(src)[:-3]}"
-        module = sys.modules.get(mod_name)
-        if module is None:
+        # 不用 importlib.reload:Python 3.14 起 reload 会经 meta_path 重新
+        # find_spec,而 _mfplugin_* 是合成名,PathFinder 按文件名找不到,
+        # 必然抛 "spec not found"。与 scan() 一致:spec + exec_module。
+        spec = importlib.util.spec_from_file_location(mod_name, src)
+        if spec is None:
             return False
-        importlib.reload(module)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = module
+        spec.loader.exec_module(module)
         self.scan()
         return True
 
