@@ -6,6 +6,41 @@ $ok = 0
 $warn = 0
 $fail = 0
 
+# ---- 机器无关的路径发现(可迁移性)----
+function Find-Python314 {
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($py) {
+        $exe = & py -3.14 -c "import sys;print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $exe) { return $exe }
+    }
+    foreach ($p in @("$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+                     "C:\Python314\python.exe",
+                     "C:\Program Files\Python314\python.exe")) {
+        if (Test-Path $p) { return $p }
+    }
+    $c = Get-Command python -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    return $null
+}
+
+function Find-VcVars {
+    $vsw = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vsw) {
+        $vs = & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if ($vs) {
+            $p = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+            if (Test-Path $p) { return $p }
+        }
+    }
+    foreach ($e in @("Community", "Professional", "Enterprise", "BuildTools")) {
+        $p = "C:\Program Files\Microsoft Visual Studio\2022\$e\VC\Auxiliary\Build\vcvars64.bat"
+        if (Test-Path $p) { return $p }
+    }
+    $p18 = "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+    if (Test-Path $p18) { return $p18 }
+    return $null
+}
+
 function Check($name, $cond, $detail) {
     if ($cond) {
         Write-Host "  [OK]   $name  $detail" -ForegroundColor Green
@@ -18,8 +53,8 @@ function Check($name, $cond, $detail) {
 
 Write-Host "`n== Python(引擎/烘焙/测试)==`n" -ForegroundColor Cyan
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
-$basePy = "C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe"
-$pyCmd = if (Test-Path $venvPy) { $venvPy } elseif (Test-Path $basePy) { $basePy } else { $null }
+$basePy = Find-Python314
+$pyCmd = if (Test-Path $venvPy) { $venvPy } elseif ($basePy) { $basePy } else { $null }
 if ($pyCmd) {
     $ver = & $pyCmd --version 2>&1
     Check "Python 解释器" ($LASTEXITCODE -eq 0) "($ver)"
@@ -39,8 +74,8 @@ if ($pyCmd) {
 Write-Host "`n== C++ 工具链(服务器)==`n" -ForegroundColor Cyan
 $cmake = cmake --version 2>$null
 Check "CMake" ($LASTEXITCODE -eq 0) ($cmake[0])
-$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
-Check "MSVC vcvars64(VS18)" (Test-Path $vcvars) $vcvars
+$vcvars = Find-VcVars
+Check "MSVC vcvars64(vswhere 探测)" ($null -ne $vcvars) $vcvars
 $cache = Join-Path $root "server\build\CMakeCache.txt"
 if (Test-Path $cache) {
     $c = Get-Content $cache
@@ -62,6 +97,19 @@ Check "Node(JS 语法检查)" ($LASTEXITCODE -eq 0) $node
 $edge = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 if (-not (Test-Path $edge)) { $edge = "C:\Program Files\Microsoft\Edge\Application\msedge.exe" }
 Check "浏览器(Edge)" (Test-Path $edge) $edge
+
+Write-Host "`n== 可迁移打包资产(其它 Windows 机器运行所需)==`n" -ForegroundColor Cyan
+$embed = Join-Path $root "python_embed"
+Check "python_embed 目录" (Test-Path $embed) $embed
+if (Test-Path $embed) {
+    Check "  python314.dll" (Test-Path (Join-Path $embed "python314.dll")) ""
+    Check "  标准库 Lib\" (Test-Path (Join-Path $embed "Lib")) ""
+    Check "  python314._pth" (Test-Path (Join-Path $embed "python314._pth")) ""
+    Check "  Release CRT(vcruntime140)" (Test-Path (Join-Path $embed "vcruntime140.dll")) ""
+    $sp = Join-Path $embed "Lib\site-packages"
+    Check "  Lib\site-packages(numpy/geopack)" ((Test-Path (Join-Path $sp "numpy")) -and (Test-Path (Join-Path $sp "geopack"))) ""
+}
+Write-Host "  [info] 打包: scripts\package.ps1(生成 Release 便携 zip)"
 
 Write-Host "`n== 运行时状态==`n" -ForegroundColor Cyan
 $srv = Get-Process mf_server -ErrorAction SilentlyContinue

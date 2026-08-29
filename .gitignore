@@ -36,6 +36,7 @@ models/*.dll
 # C++ 构建产物
 *.obj
 server/build/
+server/build_rel/
 
 # 运行时生成
 presets.json
@@ -46,5 +47,5 @@ Thumbs.db
 .vscode/
 .idea/
 
-# ???????(Geopack-2008 ?,?????)
+# Geopack-2008 参考源码(第三方 GPL,仅本地参考)
 server/_ref/

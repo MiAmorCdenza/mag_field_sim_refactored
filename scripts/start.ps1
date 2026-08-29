@@ -32,9 +32,47 @@ if ($JustCheck) {
     exit $LASTEXITCODE
 }
 
-$basePy = "C:\Users\Admin\AppData\Local\Programs\Python\Python314\python.exe"
-if (-not (Test-Path $basePy)) { $basePy = (Get-Command python -ErrorAction SilentlyContinue).Source }
+# ---- 机器无关的路径发现(可迁移性)----
+function Find-Python314 {
+    $py = Get-Command py -ErrorAction SilentlyContinue
+    if ($py) {
+        $exe = & py -3.14 -c "import sys;print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $exe) { return $exe }
+    }
+    foreach ($p in @("$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+                     "C:\Python314\python.exe",
+                     "C:\Program Files\Python314\python.exe")) {
+        if (Test-Path $p) { return $p }
+    }
+    $c = Get-Command python -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    return $null
+}
+
+function Find-VcVars {
+    $vsw = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vsw) {
+        $vs = & $vsw -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if ($vs) {
+            $p = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+            if (Test-Path $p) { return $p }
+        }
+    }
+    foreach ($e in @("Community", "Professional", "Enterprise", "BuildTools")) {
+        $p = "C:\Program Files\Microsoft Visual Studio\2022\$e\VC\Auxiliary\Build\vcvars64.bat"
+        if (Test-Path $p) { return $p }
+    }
+    $p18 = "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+    if (Test-Path $p18) { return $p18 }
+    return $null
+}
+
+$basePy = Find-Python314
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
+if (-not $basePy) {
+    Fail "未找到 Python 3.14(请安装 python.org 3.14 或 py 启动器)"
+    exit 1
+}
 
 # ---------- 2. venv 自动创建 + 依赖 ----------
 if (-not (Test-Path $venvPy)) {
@@ -60,13 +98,13 @@ if ($missing.Count -gt 0) {
 
 # ---------- 3. 服务器二进制(缺则配置+编译) ----------
 $exe = Join-Path $root "server\build\mf_server.exe"
-$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\Auxiliary\Build\vcvars64.bat"
+$vcvars = Find-VcVars
 if (-not (Test-Path $exe) -and -not $SkipBuild) {
-    if (-not (Test-Path $vcvars)) { Fail "未找到 VS18 vcvars64.bat,无法编译(可自行拷贝 exe 后 -SkipBuild)"; exit 1 }
+    if (-not $vcvars) { Fail "未找到 MSVC vcvars64.bat,无法编译(可自行拷贝 exe 后 -SkipBuild)"; exit 1 }
     Info "配置 CMake(首次)"
     $cache = Join-Path $root "server\build\CMakeCache.txt"
     if (-not (Test-Path $cache)) {
-        cmd /c "cmake -B server\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE=$basePy"
+        cmd /c "call `"$vcvars`" >nul 2>&1 && cmake -S server -B server\build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE=$basePy"
         if ($LASTEXITCODE -ne 0) { Fail "CMake 配置失败"; exit 1 }
     }
     Info "编译服务器(Release)"
