@@ -26,6 +26,7 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
     op.step = StepOp{};
     op.encode = EncodeOp{};
     op.respawn = RespawnOp{};
+    op.species = SpeciesOp{};
 
     if (kind == "emitter") {
         op.kind = OpKind::Emitter;
@@ -65,6 +66,25 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
     }
     if (kind == "respawn") {
         op.kind = OpKind::Respawn;
+        return true;
+    }
+    if (kind == "species") {
+        op.kind = OpKind::Species;
+        const auto& p = j.value("params", nlohmann::json::object());
+        op.species.type.q = p.value("q", 1.0);
+        op.species.type.mass = p.value("mass", 1.0);
+        op.species.type.v_mult = p.value("v_mult", 1.0);
+        op.species.type.weight = p.value("weight", 1.0);
+        std::string c = p.value("color", "#ffffff");
+        if (!c.empty() && c[0] == '#') c = c.substr(1);
+        int32_t col = 0xffffff;
+        try {
+            col = (int32_t)std::stoul(c, nullptr, 16);
+        } catch (...) {
+        }
+        op.species.type.color = col;
+        op.species.name = p.value("name", "粒子");
+        op.species.enabled = p.value("enabled", true);
         return true;
     }
     err = "未知计划算子: " + kind;

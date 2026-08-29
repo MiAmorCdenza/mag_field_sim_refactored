@@ -378,6 +378,7 @@ class Graph:
     # ================= 粒子域 =================
     _PARTICLE_OP_KINDS = {
         "particle_emitter": "emitter",
+        "particle_species": "species",
         "boris_integrator": "step",
         "leapfrog_integrator": "step",
         "rk4_integrator": "step",
@@ -441,8 +442,14 @@ class Graph:
             for (dst, dport), (src, _sport) in self.inputs_map.items():
                 if dst == nid:
                     ins[dport] = src
+            # 参数 = 规格默认值 + 实例覆盖(JSON 未显式给出的用默认,
+            # 如物种节点的 q/mass/enabled)
+            pdefaults = {k: p.default
+                         for k, p in node.spec()["params"].items()}
+            pmerged = dict(pdefaults)
+            pmerged.update(node.params)
             op = {"kind": kind, "node": nid, "type": t,
-                  "params": dict(node.params), "inputs": ins}
+                  "params": pmerged, "inputs": ins}
             if kind == "step":
                 op["kernel"] = t[:-len("_integrator")]
                 op["slots"] = {

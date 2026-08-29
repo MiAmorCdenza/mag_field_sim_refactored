@@ -113,6 +113,7 @@ class Registry:
                 "cost": s.get("cost", "cheap"),
                 "icon": s.get("icon", ""),
                 "version": s.get("version", 1),
+                "presets": s.get("presets"),  # 节点预设表(如粒子物种),前端下拉回填用
                 "inputs": {k: v.to_json() for k, v in s["inputs"].items()},
                 "outputs": dict(s["outputs"]),
                 "params": {k: v.to_json() for k, v in s["params"].items()},

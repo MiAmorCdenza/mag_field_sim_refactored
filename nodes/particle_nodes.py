@@ -56,6 +56,18 @@ _INTEGRATOR_PARAMS = {
     "substep_cap": Param("int", default=20, min=1, max=200),
 }
 
+# 物种预设(归一化单位:电荷 = 元电荷 e,质量 = 质子质量)。
+# 参照老版本可编辑元素:name / q / m / v_mult / weight / color / checked,
+# 但以"一个节点 = 一个物种"重新组织(checked → enabled 参数)。
+_SPECIES_PRESETS = {
+    "electron": {"name": "电子", "q": -1.0, "mass": 1.0 / 1836.0,
+                 "v_mult": 1.0, "weight": 1.0, "color": "#5599ff"},
+    "proton": {"name": "质子", "q": 1.0, "mass": 1.0,
+               "v_mult": 1.0, "weight": 1.0, "color": "#ff5555"},
+    "alpha": {"name": "α粒子", "q": 2.0, "mass": 4.0,
+              "v_mult": 1.0, "weight": 1.0, "color": "#ffaa33"},
+}
+
 
 @register_node(
     type="particle_emitter",
@@ -66,7 +78,59 @@ _INTEGRATOR_PARAMS = {
     version=1,
 )
 class ParticleEmitterNode(ParticleNodeBase):
-    """粒子发射器:参数镜像 C++ EmitterConfig(粒子类型列表 v1 走服务器默认)。"""
+    """粒子发射器:参数镜像 C++ EmitterConfig。
+
+    类型列表来自图中声明式 particle_species 节点(计划编译时聚合);
+    无物种节点时沿用服务器默认三种类型。
+    """
+
+
+@register_node(
+    type="particle_species",
+    name="粒子物种", category="粒子/来源", icon="◉", domain="particle",
+    inputs={},
+    outputs={"out": "any"},
+    params={
+        "preset": Param("enum", default="custom",
+                        choices=["custom", "electron", "proton", "alpha"],
+                        desc="预设:选择后自动填充下方字段(再编辑即转自定义)"),
+        "name": Param("string", default="自定义粒子", desc="显示名称"),
+        "q": Param("scalar", default=1.0, desc="电荷(单位:元电荷 e)"),
+        "mass": Param("scalar", default=1.0, desc="质量(质子=1)"),
+        "v_mult": Param("scalar", default=1.0, min=0.0, max=10.0,
+                        desc="速度倍率"),
+        "weight": Param("scalar", default=1.0, min=0.0, max=100.0,
+                        desc="生成权重(按权重随机抽取)"),
+        "color": Param("string", default="#ff5555", desc="渲染颜色(hex)"),
+        "enabled": Param("bool", default=True, desc="参与生成(对应老版 checked)"),
+    },
+    presets=_SPECIES_PRESETS,
+    version=1,
+)
+class ParticleSpeciesNode(ParticleNodeBase):
+    """粒子物种声明:一个节点 = 一个物种,计划编译时聚合进发射器。
+
+    元素参照老版本 particle_types 的 name/q/m/v_mult/weight/color/checked;
+    设计上不用"发射器内的列表",而是独立声明节点 —— 物种可插拔、
+    可组合(与场的原子节点同一哲学)。
+    """
+
+    def __init__(self, node_id, params=None):
+        super().__init__(node_id, params)
+        # 加载时即按预设填充(JSON 里只有 {"preset": "electron"} 也能
+        # 得到完整的 q/mass/v_mult/color/name)
+        p = self.params.get("preset")
+        if p in _SPECIES_PRESETS:
+            for k, v in _SPECIES_PRESETS[p].items():
+                self.params.setdefault(k, v)
+
+    def on_param(self, name, old, new):
+        # 预设 → 自动填充;手动改物理量 → 转为自定义
+        if name == "preset" and new in _SPECIES_PRESETS:
+            for k, v in _SPECIES_PRESETS[new].items():
+                self.params[k] = v
+        elif name in ("name", "q", "mass", "v_mult", "weight", "color"):
+            self.params["preset"] = "custom"
 
 
 @register_node(

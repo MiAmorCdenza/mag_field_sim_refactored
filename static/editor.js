@@ -269,6 +269,14 @@ window.editor = (function () {
                 v => {
                     node.properties[k] = v;
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
+                    // 粒子物种:预设下拉 → 立即回填其它字段
+                    // (与引擎 on_param 同表;面板重建后停止本循环)
+                    if (spec.type === "particle_species" && k === "preset" &&
+                        spec.presets && spec.presets[v]) {
+                        Object.assign(node.properties, spec.presets[v]);
+                        renderProps(node);
+                        return;
+                    }
                 }));
         }
 

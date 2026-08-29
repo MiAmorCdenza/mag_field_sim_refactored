@@ -18,6 +18,7 @@ enum class OpKind : uint8_t {
     Step,      // 批次推进(每帧热路径;内核选择/子步数来自节点参数)
     Encode,    // 二进制编码(网络帧;21 字节/粒子)
     Respawn,   // 预留:状态 1/2 粒子逐帧重生(v1 未启用,legacy 语义 = 事件重生)
+    Species,   // 粒子物种声明(particle_species 节点 → 聚合进发射器类型列表)
 };
 
 struct EmitterOp {
@@ -38,6 +39,13 @@ struct StepOp {
 struct EncodeOp {};
 struct RespawnOp {};
 
+// 物种算子参数(对应老版 particle_types 的 name/q/m/v_mult/weight/color/checked)
+struct SpeciesOp {
+    ParticleType type;
+    std::string name;
+    bool enabled = true;
+};
+
 struct PlanOp {
     OpKind kind = OpKind::Step;
     std::string node_id;
@@ -45,6 +53,7 @@ struct PlanOp {
     StepOp step;
     EncodeOp encode;
     RespawnOp respawn;
+    SpeciesOp species;
 };
 
 struct Plan {

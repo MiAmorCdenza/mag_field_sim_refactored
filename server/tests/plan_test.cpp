@@ -116,6 +116,41 @@ int main() {
         }
     }
 
+    std::printf("=== 5) 物种算子解析 ===\n");
+    {
+        json doc = {
+            {"ops", json::array({
+                json{{"kind", "species"}, {"node", "se"},
+                     {"params", json{{"q", -1.0}, {"mass", 0.0005446},
+                                     {"v_mult", 1.0}, {"weight", 1.0},
+                                     {"color", "#5599ff"},
+                                     {"name", "电子"}, {"enabled", true}}}},
+                json{{"kind", "species"}, {"node", "sa"},
+                     {"params", json{{"q", 2.0}, {"mass", 4.0},
+                                     {"color", "#ffaa33"}, {"enabled", false}}}},
+            })},
+        };
+        Plan p;
+        std::string err;
+        CHECK(plancomp::plan_from_json(doc, p, err), "物种计划编译成功");
+        CHECK(p.ops.size() == 2 && p.ops[0].kind == OpKind::Species,
+              "算子 = Species");
+        CHECK(p.ops[0].species.type.q == -1.0 &&
+                  std::abs(p.ops[0].species.type.mass - 0.0005446) < 1e-12,
+              "电子 q/mass 透传");
+        CHECK(p.ops[0].species.type.color == 0x5599ff,
+              "色值 #5599ff → 0x5599ff");
+        CHECK(p.ops[0].species.enabled, "enabled 透传(true)");
+        CHECK(!p.ops[1].species.enabled && p.ops[1].species.type.q == 2.0,
+              "α粒子 enabled=false");
+        json bad = {{"ops", json::array({
+            json{{"kind", "species"}, {"node", "sx"},
+                 {"params", json{{"color", "not-a-color"}}}}})}};
+        Plan p2;
+        CHECK(plancomp::plan_from_json(bad, p2, err), "坏色值不崩溃");
+        CHECK(p2.ops[0].species.type.color == 0xffffff, "坏色值回退 0xffffff");
+    }
+
     std::printf(failures ? "\n[%d 项失败]\n" : "\n全部通过 ✅\n", failures);
     return failures ? 1 : 0;
 }

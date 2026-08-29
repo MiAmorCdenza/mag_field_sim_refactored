@@ -43,9 +43,11 @@ public:
 
     void respawn();          // 只重生死亡粒子(与 legacy 语义一致)
     void respawn_all();      // 全量重生(计划变更:发射器配置换了,旧位置作废)
+    void reapply_species();  // 物种声明重新应用到发射器(legacy 参数路径后调用)
     void step_frame();       // 按计划 Step 算子执行(内核/子步数来自计划)
     void encode(std::vector<uint8_t>& out) const;
 
 private:
     int32_t next_id_ = 0;
+    std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
 };

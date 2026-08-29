@@ -27,18 +27,29 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
         if (op.kind == OpKind::Step && op.step.max_range > max_range)
             max_range = op.step.max_range;
     }
+    // 物种聚合:图中声明式 particle_species 节点 → 发射器类型列表
+    // (一个节点 = 一个物种;enabled=false 不参与生成)
+    species_types_.clear();
+    for (const auto& op : plan.ops) {
+        if (op.kind == OpKind::Species && op.species.enabled)
+            species_types_.push_back(op.species.type);
+    }
     // 图内发射器节点(node_id != "__default")→ 重建发射器并接管;
     // 后备计划的发射器保持由服务器 st.emitter 驱动(legacy 兼容)
     has_emitter_op = false;
     for (const auto& op : plan.ops) {
         if (op.kind != OpKind::Emitter) continue;
-        if (op.node_id != "__default") {
-            emitter = Emitter(op.emitter.cfg);
-            has_emitter_op = true;
-        }
+        EmitterConfig ecfg = op.emitter.cfg;
+        if (!species_types_.empty()) ecfg.types = species_types_;  // 物种节点优先
+        emitter = Emitter(ecfg);
+        if (op.node_id != "__default") has_emitter_op = true;
         break;  // 首个 EmitterOp 生效(v1)
     }
     return true;
+}
+
+void SimPipeline::reapply_species() {
+    if (!species_types_.empty()) emitter.set_types(species_types_);
 }
 
 bool SimPipeline::install_baked(const BakedField& f, std::string& err) {

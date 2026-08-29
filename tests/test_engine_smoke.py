@@ -327,6 +327,59 @@ def test_particle_domain():
     print("✓ 粒子域中列带布局(场左→粒子中)")
 
 
+def test_particle_species():
+    """粒子物种节点:三预设填充 + 计划聚合 + 手动编辑转自定义。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    cls = reg.get("particle_species")
+    assert cls is not None and cls._node_spec.get("domain") == "particle"
+    presets = cls._node_spec.get("presets")
+    assert set(presets) == {"electron", "proton", "alpha"}
+    assert abs(presets["electron"]["mass"] - 1.0 / 1836.0) < 1e-15
+    assert presets["alpha"]["q"] == 2.0 and presets["alpha"]["mass"] == 4.0
+    print("✓ 物种三预设注册(e/p/α,物理值正确)")
+
+    # 加载时按预设填充(JSON 只带 preset 字段)
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+    doc = {
+        "version": 1, "lattice": {"preset": "tiny"},
+        "nodes": [
+            {"id": "pe", "type": "particle_emitter"},
+            {"id": "se", "type": "particle_species",
+             "params": {"preset": "electron"}},
+            {"id": "sp", "type": "particle_species",
+             "params": {"preset": "proton"}},
+            {"id": "sa", "type": "particle_species",
+             "params": {"preset": "alpha", "enabled": False}},
+            {"id": "sc", "type": "particle_species"},
+        ],
+        "edges": [],
+        "outputs": {},
+    }
+    g.load_json(doc)
+    n_e = g.nodes["se"]
+    assert n_e.params["q"] == -1.0 and abs(n_e.params["mass"] - 1 / 1836.0) < 1e-15
+    assert n_e.params["name"] == "电子"
+    print("✓ 加载即填充预设(JSON 仅 preset 字段)")
+
+    plan = g.particle_plan()
+    kinds = [o["kind"] for o in plan["ops"]]
+    species = [o for o in plan["ops"] if o["kind"] == "species"]
+    assert kinds.count("species") == 4
+    by_id = {o["node"]: o for o in species}
+    assert by_id["sa"]["params"]["enabled"] is False
+    assert by_id["sc"]["params"]["q"] == 1.0  # 默认自定义粒子
+    print("✓ 计划聚合 4 个物种算子(enabled 透传)")
+
+    # 预设切换 + 手动编辑转自定义
+    g.set_param("sc", "preset", "alpha")
+    assert g.nodes["sc"].params["q"] == 2.0
+    assert g.nodes["sc"].params["mass"] == 4.0
+    g.set_param("sc", "q", 3.0)
+    assert g.nodes["sc"].params["preset"] == "custom"
+    print("✓ 预设切换回填 + 手动编辑转 custom")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -339,4 +392,5 @@ if __name__ == "__main__":
     test_auto_layout()
     test_render_domain()
     test_particle_domain()
+    test_particle_species()
     print("\n全部冒烟测试通过 ✅")

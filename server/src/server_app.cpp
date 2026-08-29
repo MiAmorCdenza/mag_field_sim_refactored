@@ -89,6 +89,9 @@ std::string default_graph_json() {
     {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
     {"id": "oe", "type": "output_slot", "params": {"slot": "E"}},
     {"id": "od", "type": "output_slot", "params": {"slot": "drag"}},
+    {"id": "sp_e", "type": "particle_species", "params": {"preset": "electron"}},
+    {"id": "sp_p", "type": "particle_species", "params": {"preset": "proton"}},
+    {"id": "sp_a", "type": "particle_species", "params": {"preset": "alpha"}},
     {"id": "rp", "type": "render_pipeline_start"},
     {"id": "rfl", "type": "render_item_field_lines"},
     {"id": "rel", "type": "render_item_efield_lines"},
@@ -458,6 +461,7 @@ struct ServerApp::Impl {
                     }
                     if (rebuild_emitter && !pipeline->has_emitter_op) {
                         pipeline->emitter = Emitter(st.emitter);
+                        pipeline->reapply_species();  // 物种声明优先于 legacy 默认类型
                         respawn = true;
                     }
                 }

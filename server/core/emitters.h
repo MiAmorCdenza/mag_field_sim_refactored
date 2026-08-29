@@ -3,6 +3,7 @@
 #pragma once
 #include <cmath>
 #include <random>
+#include <utility>
 #include <vector>
 #include "vec3.h"
 #include "particles.h"
@@ -27,6 +28,22 @@ struct EmitterConfig {
 class Emitter {
 public:
     explicit Emitter(const EmitterConfig& cfg) : cfg_(cfg), gen_(std::random_device{}()) {}
+
+    // 显式移动:MSVC 14.51 对含 mt19937(5000B 状态)类的隐式 move-assign
+    // 生成过错误代码(启动即 0xC0000005,与 SimPipeline 隐式移动同款坑);
+    // 显式逐成员移动绕开代码生成 bug。声明移动 → 拷贝被隐式删除。
+    Emitter(Emitter&& o) noexcept
+        : cfg_(std::move(o.cfg_)), gen_(o.gen_) {}
+    Emitter& operator=(Emitter&& o) noexcept {
+        if (this != &o) {
+            cfg_ = std::move(o.cfg_);
+            gen_ = o.gen_;
+        }
+        return *this;
+    }
+
+    // 粒子类型列表(物种声明节点聚合后应用)
+    void set_types(const std::vector<ParticleType>& types) { cfg_.types = types; }
 
     void spawn(Particles& p, size_t idx, int32_t id) {
         double max_r = cfg_.max_range;

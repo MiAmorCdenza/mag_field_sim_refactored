@@ -263,6 +263,11 @@ struct Plan { std::vector<PlanOp> ops; bool slow_path; };
   内置四内核:`boris`(legacy 原样封装,默认图**位级一致**基准)、
   `leapfrog`(Boris 旋转 + 踢-漂-踢)、`rk4`(全经典,对回旋耗散)、
   `verlet`(Boris 旋转 + 位置先行)。**换步进器 = 图上换节点**。
+- **粒子物种声明节点**(`particle_species`,OpKind::Species):一个节点 =
+  一个物种,元素参照老版 particle_types(name/q/mass/v_mult/weight/
+  color/checked→enabled),预设 electron/proton/alpha 下拉自动回填
+  (引擎 on_param + 前端 spec.presets 同表);计划编译聚合全部启用的
+  物种 → 发射器类型列表,无物种节点时沿用服务器默认。
 - 关键物理决策:经典核的磁力部分用 **Boris 旋转**(v×B 正交力线性踢
   每步涨能 ~(hω)²/4,200 步可爆 60×;旋转无条件稳定、精确保模);
   E/引力/阻力由各经典格式负责排布。RK4 保留全经典(教科书对照)。
@@ -396,7 +401,7 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 | # | 欠账 | 说明 |
 |---|---|---|
 | D1 | **ExpressionNode** | field 域 numpy 表达式节点(计划 §5.10):AST 白名单沙箱 + 试烘焙校验 |
-| D2 | **粒子域节点化(已做 L1)** | ✅ 发射器/积分器(×4)/编码器为图内节点,图驱动执行计划(§5.7);采样器显式节点与 Python 慢速路径算子留待后续 |
+| D2 | **粒子域节点化(已做 L1)** | ✅ 发射器/积分器(×4)/编码器/**粒子物种**为图内节点,图驱动执行计划(§5.7);采样器显式节点与 Python 慢速路径算子留待后续 |
 | D3 | **两级校验完整化** | engine/validation.py 不存在:场节点"粗点阵试烘焙"、粒子节点"小缓冲试运行"未实现 |
 | D4 | user_render_items/ 文件热扫描 | 服务器目录监听 + 前端动态 import(内联编辑器已可用,文件插件路径未通) |
 | D5 | 渲染项"存为插件文件"按钮 | 代码编辑器设计了该按钮,未实现(现仅应用/重置) |
@@ -431,9 +436,10 @@ watchdog(nodes/, user_nodes/) 检测 .py 变化
 `Python3_EXECUTABLE=3.14`;服务器嵌入解释器优先 venv site-packages;
 日志统一走 JSON 日志器(engine.logging / server/core/logger.h / 前端 uiLog);
 **重型运行时对象(如 SimPipeline)用 `std::unique_ptr` 按需构造,避免隐式
-移动赋值**——MSVC 14.51 对含多向量成员的隐式 move-assign 生成过错误代码
-(启动即 0xC0000005,placement-new/unique_ptr 均正常;独立最小复现不触发,
-属代码生成问题,见 server_app.cpp Impl 注释);C++ 独立测试用
+移动赋值**;`Emitter` 同理(含 mt19937 5000B 状态)——已改为**显式移动
+构造/赋值**。MSVC 14.51 对含多向量/大状态成员的类生成过错误代码
+(启动即 0xC0000005,独立最小复现不触发,属代码生成问题,见
+server_app.cpp Impl 注释与 emitters.h);C++ 独立测试用
 VS18 vcvars64(`C:\Program Files\Microsoft Visual Studio\18\Insiders\VC\
 Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 
