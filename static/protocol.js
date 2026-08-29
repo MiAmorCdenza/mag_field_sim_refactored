@@ -119,6 +119,13 @@ window.protocol = (function () {
             window.editor.loadGraph(m.graph);
             setVersion(m.version);
             setParticles(m.particles);
+            // 无渲染域节点 → 3D 视口静默空屏(仿真仍正常,只是没人订阅输出)
+            const hasRender = (m.graph.nodes || []).some(
+                n => String(n.type || "").startsWith("render_"));
+            if (!hasRender) {
+                window.uiLog("warn", "no_render_node",
+                    "当前图没有渲染域节点:拖入「渲染管线起始」+ 渲染项才能显示输出");
+            }
         } else if (m.type === "bake_progress") {
             const bar = document.getElementById("bake-progress");
             const fill = document.getElementById("bake-bar");

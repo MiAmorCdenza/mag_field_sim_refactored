@@ -80,6 +80,16 @@ def frame_colors(view):
     return colors
 
 
+async def restore_default(ws):
+    """测试复位:恢复默认图(否则服务器停在无渲染链的测试图,视口空屏)。"""
+    import os
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "graphs", "default_graph.json"), encoding="utf-8") as f:
+        doc = json.load(f)
+    await ws.send(json.dumps({"type": "graph.upload", "graph": doc}))
+    await wait_for(ws, lambda t: t[0] == "bake_progress" and t[1]["state"] == "done")
+
+
 async def main():
     async with websockets.connect(HOST, max_size=None) as ws:
         await wait_for(ws, lambda t: t[0] == "init_config", 10)
@@ -116,6 +126,9 @@ async def main():
         await wait_for(ws, lambda t: t[0] == "s" and t[1]["v"] > hdr2["v"])
         print("✓ 物种参数编辑后帧继续")
 
+        # 4) 复位默认图,不留空屏状态
+        await restore_default(ws)
+        print("✓ 已复位默认图")
         print("粒子物种端到端测试全部通过 ✅")
 
 

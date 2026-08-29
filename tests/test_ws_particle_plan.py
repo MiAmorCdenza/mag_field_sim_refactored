@@ -98,4 +98,24 @@ async def main():
 
 
 if __name__ == "__main__":
+    import os
     asyncio.run(main())
+    # 复位默认图(否则服务器停在无渲染链的测试图,视口空屏)
+    import json
+    import websockets as _ws
+    _doc = json.load(open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "graphs", "default_graph.json"), encoding="utf-8"))
+
+    async def _restore():
+        async with _ws.connect("ws://127.0.0.1:8001/ws", max_size=None) as w:
+            await w.send(json.dumps({"type": "graph.upload", "graph": _doc}))
+            while True:
+                f = await asyncio.wait_for(w.recv(), 60)
+                if isinstance(f, (bytes, bytearray)):
+                    continue
+                m = json.loads(f)
+                if m.get("type") == "bake_progress" and m.get("state") == "done":
+                    return
+    asyncio.run(_restore())
+    print("已复位默认图")
