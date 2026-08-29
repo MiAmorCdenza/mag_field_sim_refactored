@@ -459,3 +459,10 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 9. **NOMINMAX 必须在 winsock2.h 之前**(winsock2 自身包含 windows.h)
 10. **服务器启动前做端口占用预检**:Windows SO_REUSEADDR 允许双进程绑
     同端口,请求会随机落到两个实例(已踩坑,见 main.cpp)
+11. **stretched_axis 左外侧必须生成**:`_side` 对负 span(start>end)曾判
+    `span<=0` 返回空 → 所有点阵缺 x<-3/y<-3/z<-3(磁尾从没进过表),
+    并导致域界 `dom_half=3` → 场线视图被压到 3 Re;左外侧是"降序列",
+    不是删掉
+12. **默认图用 coarse 点阵**(legacy 视场,烘焙 ~12s 属"离线秒级"契约);
+    tiny 留给测试预设;发射器默认 max_range=24 与域一致(域外采样
+    钳到边界值,物理失真)

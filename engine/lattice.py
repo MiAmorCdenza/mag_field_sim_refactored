@@ -34,8 +34,9 @@ def stretched_axis(vmin, vmax, vcenter, inner_halfwidth, inner_dx,
         if n <= 0:
             return np.array([])
         span = end - start
-        if span <= 0.0:
+        if span == 0.0:
             return np.array([])
+        # 负 span(左外侧,start>end)同样适用:start + span*t^p 单调下降
         t = np.linspace(0.0, 1.0, n)
         return start + span * t ** power
 

@@ -70,7 +70,7 @@ std::string read_file(const std::string& path) {
 std::string default_graph_json() {
     return R"JSON({
   "version": 1,
-  "lattice": {"preset": "tiny"},
+  "lattice": {"preset": "coarse"},
   "nodes": [
     {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}},
     {"id": "day", "type": "day_source", "params": {"day": 172.0}},
@@ -802,7 +802,9 @@ int ServerApp::run(const ServerConfig& cfg) {
     // 发射器默认
     impl.st.emitter.mode = 0;
     impl.st.emitter.v_base = 400.0;
-    impl.st.emitter.max_range = 90.0;
+    // 发射半径与默认点阵(coarse,x≤+25)一致:粒子在域内生成、
+    // 采样真实场(域外会钳到边界值,物理失真)
+    impl.st.emitter.max_range = 24.0;
     impl.st.emitter.types = {{1.0, 0.1, 1.0, 1.0, 0xff3333},
                              {-1.0, 0.1, 1.0, 1.0, 0x3333ff},
                              {1.0, 1.0, 1.0, 1.0, 0xff8800}};
