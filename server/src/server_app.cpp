@@ -101,6 +101,7 @@ std::string default_graph_json() {
     {"id": "rfl", "type": "render_item_field_lines"},
     {"id": "rel", "type": "render_item_efield_lines"},
     {"id": "rpt", "type": "render_item_particles"},
+    {"id": "rtrl", "type": "render_item_particle_trails"},
     {"id": "rdi", "type": "render_item_diagnostics"}
   ],
   "edges": [
@@ -126,7 +127,8 @@ std::string default_graph_json() {
     {"from": ["rp", "next"], "to": ["rfl", "prev"]},
     {"from": ["rfl", "next"], "to": ["rel", "prev"]},
     {"from": ["rel", "next"], "to": ["rpt", "prev"]},
-    {"from": ["rpt", "next"], "to": ["rdi", "prev"]},
+    {"from": ["rpt", "next"], "to": ["rtrl", "prev"]},
+    {"from": ["rtrl", "next"], "to": ["rdi", "prev"]},
     {"from": ["sp_e", "next"], "to": ["sp_p", "prev"]},
     {"from": ["sp_p", "next"], "to": ["sp_a", "prev"]},
     {"from": ["sp_a", "types"], "to": ["pe", "types"]},

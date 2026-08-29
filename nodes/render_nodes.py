@@ -101,6 +101,25 @@ class RenderItemParticlesNode(RenderNodeBase):
 
 
 @register_node(
+    type="render_item_particle_trails",
+    name="粒子拖尾渲染项", category="渲染", icon="彡", domain="render",
+    inputs={"prev": Port("any", default=None),
+            "data": Port("particle_buffer", default=None)},
+    outputs={"next": "any"},
+    params={
+        **_RENDER_COMMON,
+        "trail_length": Param("int", default=30, min=0, max=200),
+    },
+    version=1,
+)
+class RenderItemParticleTrailsNode(RenderNodeBase):
+    """粒子拖尾:客户端从已收粒子帧推导轨迹(零额外带宽)。
+
+    trail_length = 每粒子轨迹点数(0 = 关闭);轨迹颜色随粒子物种。
+    """
+
+
+@register_node(
     type="render_item_diagnostics",
     name="诊断点渲染项", category="渲染", icon="✚", domain="render",
     inputs={"prev": Port("any", default=None),
