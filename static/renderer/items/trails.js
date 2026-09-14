@@ -20,6 +20,7 @@ registerRenderItem({
         this.group = new three.Group();
         this.trailLen = 30;      // 每粒子轨迹点数(节点参数)
         this.maxSlots = 0;       // 槽位上限(按帧内粒子数生长)
+        this.activeCount = 0;    // 上一帧粒子数(检测收缩 → 清幽灵拖尾)
         this.slots = [];         // slot -> {buf, idx, cnt, id}
         this.posAttr = null;
         this.colAttr = null;
@@ -29,12 +30,14 @@ registerRenderItem({
         scene.add(this.group);
     },
 
-    // 重建几何(槽位上限/拖尾长度变化时)
+    // 重建几何(槽位上限/拖尾长度变化时);槽位状态一并重置(旧 buf 尺寸已变)
     rebuild(maxSlots, trailLen) {
-        this.maxSlots = maxSlots;
-        this.trailLen = Math.max(2, trailLen | 0);
-        const L = this.trailLen;
-        const nVerts = maxSlots * L;
+        this.maxSlots = Math.max(1, maxSlots | 0);
+        this.trailLen = Math.max(0, trailLen | 0);   // 0 = 关闭拖尾
+        this.slots = [];
+        this.activeCount = 0;
+        const L = Math.max(2, this.trailLen);
+        const nVerts = this.maxSlots * L;
 
         // 顶点:位置 + 顶点色(每粒子槽位 L 个点)
         const pos = new Float32Array(nVerts * 3);
@@ -82,7 +85,20 @@ registerRenderItem({
         const header = JSON.parse(new TextDecoder().decode(
             new Uint8Array(buf, 4, hlen)));
         const n = header.n;
-        if (n <= 0) return;
+        // 参数落地:onParam 在无几何时不会（也无法）重建，所以首帧先把节点的
+        // trail_length 应用一次 —— 否则"新图上直接 trail_length=0"会被丢掉，
+        // 用默认 30 建几何（实测就是这么漏的）
+        if (this.params.trail_length !== undefined &&
+            (this.params.trail_length | 0) !== this.trailLen) {
+            this.rebuild(Math.max(this.maxSlots, n), this.params.trail_length | 0);
+        }
+        // 关闭(参数 0)/ 空帧:清掉已有内容,不再画
+        if (this.trailLen < 2 || n <= 0) {
+            if (this.trailLen < 2 && this.line) this.line.visible = false;
+            if (n <= 0) this._clearFrom(0);
+            this.activeCount = 0;
+            return;
+        }
 
         if (n > this.maxSlots) this.rebuild(n, this.trailLen);
         const L = this.trailLen;
@@ -125,14 +141,18 @@ registerRenderItem({
                 if (slot.cnt < L) slot.cnt++;
             }
 
-            // 时间序写入 GPU 缓冲(最新点 = idx-1);未满部分重复最老点
+            // 时间序写入 GPU 缓冲(最新点 = idx-1);未满部分**重复最老点**
+            // (注意:必须夹到 cnt-1,直接走满整圈会读到旧槽位残值 → 拖出一条
+            //  指向残值的直线;见文件头注释)
             const r = (slot.idx - 1 + L) % L;  // 最新写入位置
             const g0 = i * L;
             const fr = (color >> 16 & 255) / 255;
             const fg = (color >> 8 & 255) / 255;
             const fb = (color & 255) / 255;
+            const oldest = Math.max(0, slot.cnt - 1);
             for (let j = 0; j < L; ++j) {
-                const src = ((r - j) % L + L) % L;  // 从新到老
+                const k = Math.min(j, oldest);          // 超出历史 → 重复最老点
+                const src = ((r - k) % L + L) % L;      // 从新到老
                 const gi = g0 + j;
                 pos[gi * 3] = slot.buf[src * 3];
                 pos[gi * 3 + 1] = slot.buf[src * 3 + 1];
@@ -142,14 +162,55 @@ registerRenderItem({
                 col[gi * 3 + 2] = fb;
             }
         }
+        // 粒子数变少(换预设 / 调小粒子数)→ 多余槽位塌缩,否则旧拖尾永远挂在画面上
+        if (n < this.activeCount) this._clearFrom(n);
+        this.activeCount = n;
         this.posAttr.needsUpdate = true;
         this.colAttr.needsUpdate = true;
+    },
+
+    // 清空 [from, maxSlots) 的槽位(GPU 顶点一并塌缩成退化点)
+    _clearFrom(from) {
+        if (!this.posAttr) return;
+        const L = Math.max(2, this.trailLen);
+        const pos = this.posAttr.array;
+        for (let s = Math.max(0, from); s < this.maxSlots; ++s) {
+            const slot = this.slots[s];
+            if (!slot || (slot.cnt === 0 && slot.dead)) continue;
+            if (slot.cnt > 0) {
+                const r = ((slot.idx - 1) % L + L) % L;
+                this._collapse(slot, slot.buf[r * 3], slot.buf[r * 3 + 1],
+                               slot.buf[r * 3 + 2]);
+            } else {
+                this._collapse(slot, 0, 0, 0);
+            }
+            const g0 = s * L;
+            const x = slot.buf[0], y = slot.buf[1], z = slot.buf[2];
+            for (let j = 0; j < L; ++j) {
+                pos[(g0 + j) * 3] = x;
+                pos[(g0 + j) * 3 + 1] = y;
+                pos[(g0 + j) * 3 + 2] = z;
+            }
+        }
+        this.posAttr.needsUpdate = true;
+    },
+
+    // 把槽位塌缩成退化点(所有顶点重合 → 零长线段,不显示任何东西)
+    _collapse(slot, x, y, z) {
+        const L = slot.buf.length / 3;
+        for (let j = 0; j < L; ++j) {
+            slot.buf[j * 3] = x; slot.buf[j * 3 + 1] = y; slot.buf[j * 3 + 2] = z;
+        }
+        slot.idx = 0; slot.cnt = 0; slot.id = null; slot.dead = true;
     },
 
     onParam(params) {
         this.params = Object.assign({}, this.params, params);
         if (this.line) {
-            this.line.visible = this.params.visible !== false;
+            // trail_length=0 = 关闭拖尾(Van Allen 等大粒子数预设用它保帧率)
+            const off = (this.params.trail_length | 0) === 0 ||
+                        this.trailLen < 2;
+            this.line.visible = this.params.visible !== false && !off;
             this.line.material.opacity =
                 this.params.opacity !== undefined ? this.params.opacity : 0.55;
             if (this.params.trail_length !== undefined &&
