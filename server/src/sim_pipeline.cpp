@@ -59,6 +59,10 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     }
     // 俯仰角模式需要局部 B:绑定本管线的 B 表(spawn 时实时采样)
     emitter.set_field(&b_table);
+    // 注入 + count>1 = 所有粒子初条件完全相同(确定性 mode 3 零随机扰动)
+    // → N 个粒子精确重合,视觉上仍是 1 个(用户实测踩到过)。此处只标记,
+    // 由上层写日志/广播 plan_status 告警。
+    degenerate_injection_ = has_injection_ && plan_count_ > 1;
     return true;
 }
 

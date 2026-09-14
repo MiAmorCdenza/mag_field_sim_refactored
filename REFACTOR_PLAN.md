@@ -547,3 +547,17 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     改 color_mode 看不到任何反应,必须等下一次几何帧。另:线类渲染项的
     `color` 默认必须是 `""`(空 = 用 color_mode),否则新建节点会被默认色
     静默覆盖分类色;`pushRenderParams` 也不推空 color
+24. **`node.param` 必须同步权威图 JSON**:只更新 Python 侧图 + 计划,不刷新
+    `st.graph_json` → 新连接的 `init_config`、以及「重置为服务器图」都会
+    发**旧参数**(实测:滑块把 count 改成 42779,新连接拿到的还是 1)。
+    现在 handler 里一并 `bridge.graph_json(gjson)` 写回
+25. **注入节点 + count>1 = 所有粒子精确重合**(确定性 mode 3 零随机扰动):
+    N 个粒子同位置同速度,视觉上仍是 1 个 —— 实测 40000 粒子最大坐标差
+    0.000000 Re。已加告警(`plan_status.degenerate_injection` + 日志
+    `plan.degenerate_injection` + 前端 toast/HUD),行为不变(要撒多粒子
+    请删掉注入节点后**重新应用图**)
+26. **画布结构改动必须上传才算数**:增删节点/改连线只在本地点上生效,参数
+    才是即时下发。已加「● 画布有未应用修改」角标 + 应用按钮变琥珀色
+    (graph.onNodeAdded/onNodeRemoved/onConnectionsChange → 置脏;loadGraph
+    与上传成功 → 清脏)。这条踩坑实录:删了注入节点但没上传 → 服务器图里
+    注入仍在 → count 调大也"没变化"

@@ -61,6 +61,8 @@ public:
     // 图内粒子数覆盖(0 = 沿用全局 --particles / UI 设置)
     int plan_particle_count() const { return plan_count_; }
     bool has_injection() const { return has_injection_; }
+    // 注入生效且数量 >1:所有粒子初条件相同 → 完全重合(仅告警,不改变行为)
+    bool degenerate_injection() const { return degenerate_injection_; }
 
     // 单粒子初条件预览(无注入节点 / 无 B 表 → valid=false)
     SourcePreview source_preview() const;
@@ -86,5 +88,6 @@ private:
     int32_t next_id_ = 0;
     std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
     int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
+    bool degenerate_injection_ = false;        // 注入 + count>1 → 粒子全重合
     double sim_time_ = 0.0;                    // 仿真时间累积(s)
 };

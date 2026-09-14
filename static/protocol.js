@@ -45,6 +45,9 @@ window.protocol = (function () {
             bits.push(plan.slow_path ? `计划粒子 ${plan.count} (slow_path)`
                                      : `计划粒子 ${plan.count}`);
         }
+        if (plan.degenerate_injection) {
+            bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
+        }
         el.innerHTML = bits.map((b, i) =>
             `<span class="${i === 0 ? "" : "dim"}">${b}</span>`).join("\n");
     }, 250);
@@ -193,6 +196,13 @@ window.protocol = (function () {
         } else if (m.type === "plan_status") {
             simStats.plan = m;
             if (m.slow_path) window.toast("⚠ 粒子计划含未知算子:慢路径(slow_path)");
+            // 注入节点生效且 count>1:所有粒子初条件相同 → 精确重合(看起来仍
+            // 是 1 个粒子)。必须显式告警,否则"改了 count 没变化"极易误判。
+            if (m.degenerate_injection) {
+                window.toast("⚠ 注入节点仍在生效:count=" + m.count +
+                    " 时所有粒子初条件完全相同(完全重合)。要撒多粒子请删除" +
+                    "「单粒子注入」节点后点「应用图服务器」");
+            }
             // 图内粒子数覆盖(发射器 count / 单粒子注入):同步界面徽标
             if (typeof m.count === "number") {
                 if (m.count > 0) {
@@ -233,6 +243,9 @@ window.protocol = (function () {
             }
         }
         wsSend({ type: "graph.upload", graph: doc });
+        if (window.editor && window.editor.markGraphApplied) {
+            window.editor.markGraphApplied();   // 已上传 → 清「未应用修改」提示
+        }
         window.uiLog("info", "graph_upload", "图已上传,服务器开始烘焙",
             { nodes: doc.nodes.length, edges: doc.edges.length });
         window.toast("图已上传,服务器开始烘焙");

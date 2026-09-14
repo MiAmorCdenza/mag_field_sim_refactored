@@ -53,6 +53,7 @@ struct SharedState {
     bool plan_dirty = false;
     bool plan_slow_path = false;
     int plan_notice_count = -1;      // 计划广播过的图内粒子数(0=无覆盖)
+    bool plan_degenerate = false;    // 注入 + count>1(粒子全重合,已告警)
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     std::string source_preview_json;                // 最近 L2 初条件预览(新连接重放)
     EmitterConfig emitter;
@@ -473,6 +474,7 @@ struct ServerApp::Impl {
                     if (pipeline->set_plan(plan, perr)) {
                         bool slow = plan.slow_path;
                         int pcount = pipeline->plan_particle_count();  // 0 = 无覆盖
+                        bool degen = pipeline->degenerate_injection();
                         // 图内粒子数覆盖:先按计划调整缓冲,再全量重生
                         if (pcount > 0 && pipeline->particles.count != (size_t)pcount)
                             pipeline->particles.resize((size_t)pcount);
@@ -480,15 +482,23 @@ struct ServerApp::Impl {
                         {
                             std::lock_guard<std::mutex> g(st.m);
                             changed = (st.plan_slow_path != slow) ||
-                                      (st.plan_notice_count != pcount);
+                                      (st.plan_notice_count != pcount) ||
+                                      (st.plan_degenerate != degen);
                             st.plan_slow_path = slow;
                             st.plan_notice_count = pcount;
+                            st.plan_degenerate = degen;
                         }
                         if (changed) {
                             json m{{"type", "plan_status"}, {"slow_path", slow},
-                                   {"count", pcount}};
+                                   {"count", pcount},
+                                   {"degenerate_injection", degen}};
                             broadcast_text(m.dump());
                         }
+                        if (degen)
+                            MFL("plan", "degenerate_injection", Warn,
+                                "注入节点生效且 count>1:所有粒子初条件相同(完全重合);"
+                                "要撒多粒子请删除注入节点后重新应用图",
+                                (nlohmann::json{{"count", pcount}}));
                         // 计划变更 → 全量重生:发射器/作用半径可能已换,
                         // 旧位置粒子(如 r=90)会被新 max_range 判死,
                         // 只重生死亡粒子救不回整批
@@ -797,15 +807,20 @@ struct ServerApp::Impl {
                         }
                         if (ok) {
                             // 粒子域节点参数(如积分器 dt)→ 重编译执行计划
-                            std::string plan_json;
-                            bool plan_ok = false;
+                            std::string plan_json, gjson;
+                            bool plan_ok = false, graph_ok = false;
                             {
                                 std::lock_guard<std::mutex> g(bridge_m);
                                 plan_ok = bridge.particle_plan(plan_json, err);
+                                // 同步权威图 JSON:否则 node.param 只改了 Python 侧
+                                // 图,而 init_config / 「重置为服务器图」仍发旧参数
+                                // (实测:滑块改了 count,新连接拿到的还是旧值)
+                                graph_ok = bridge.graph_json(gjson, err);
                             }
                             {
                                 std::lock_guard<std::mutex> g(st.m);
                                 st.graph_version = ver;
+                                if (graph_ok) st.graph_json = gjson;
                                 if (plan_ok) {
                                     st.particle_plan_json = plan_json;
                                     st.plan_dirty = true;

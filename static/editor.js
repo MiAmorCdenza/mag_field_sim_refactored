@@ -198,6 +198,7 @@ window.editor = (function () {
                 }
             }
             canvas.setDirty(true, true);
+            setGraphDirty(false);   // 载入(服务器图/上传成功)后视为已同步
         } catch (err) {
             window.toast("loadGraph 错误: " + err.message + "\n" + (err.stack || ""));
             console.error(err);
@@ -649,6 +650,42 @@ registerRenderItem({
         window.toast("已自动排布(场左→粒子中→渲染右,渲染域垂直链)");
     }
 
+    // ---------- 图编辑未应用提示 ----------
+    // 画布上的**结构**修改(增删节点/改连线)只在本地点上生效,必须点
+    // 「应用图到服务器」才会上传并重烘焙;参数修改则即时下发(node.param)。
+    // 之前没有任何提示,实测踩坑:删了「单粒子注入」节点、把 count 调大,
+    // 服务器图里注入节点仍在 → mode 3 让所有粒子初条件相同 → 看起来还是 1 个。
+    let graphDirty = false;
+    function setGraphDirty(v) {
+        if (graphDirty === v) return;
+        graphDirty = v;
+        const btn = document.getElementById("btn-upload");
+        const badge = document.getElementById("dirty-badge");
+        if (btn) {
+            btn.classList.toggle("dirty", v);
+            btn.textContent = v ? "⬆ 应用图到服务器 ●" : "⬆ 应用图到服务器";
+        }
+        if (badge) badge.style.display = v ? "" : "none";
+    }
+    function isGraphDirty() { return graphDirty; }
+
+    // 节点增删 + 连线变化 → 置脏(载图期间由 loadGraph 末尾清掉)
+    graph.onNodeAdded = () => setGraphDirty(true);
+    graph.onNodeRemoved = (node) => {
+        setGraphDirty(true);
+        // 删掉注入节点 → 本地预览标记也要跟着消失(否则会残留一个"假"标记)
+        if (node && node._spec && node._spec.type === "particle_injection" &&
+            window.renderHost) {
+            window.renderHost.dispatch("source_preview", null);
+        }
+        if (selectedNode === node) { selectedNode = null; renderProps(null); }
+    };
+    const _prevConnChange = LGraphNode.prototype.onConnectionsChange;
+    LGraphNode.prototype.onConnectionsChange = function (...args) {
+        if (typeof _prevConnChange === "function") _prevConnChange.apply(this, args);
+        setGraphDirty(true);
+    };
+
     // ---------- 事件绑定 ----------
     document.getElementById("btn-add-node").onclick = showPalette;
     document.getElementById("btn-layout").onclick = autoLayout;
@@ -668,5 +705,7 @@ registerRenderItem({
         }
     }
 
-    return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview };
+    return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview,
+             markGraphApplied: () => setGraphDirty(false),
+             isGraphDirty: () => graphDirty };
 })();
