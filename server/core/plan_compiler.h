@@ -43,6 +43,10 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
         c.spawn_radius_ratio = p.value("spawn_radius_ratio", 0.5);
         c.max_range = p.value("max_range", 90.0);
         c.count = p.value("count", 0);
+        // 接线决定的归属(#30):types/init 接的节点 id(缺失 = 未接线)
+        const auto& ins = j.value("inputs", nlohmann::json::object());
+        op.emitter.types_node = ins.value("types", "");
+        op.emitter.init_node = ins.value("init", "");
         return true;
     }
     if (kind == "step") {

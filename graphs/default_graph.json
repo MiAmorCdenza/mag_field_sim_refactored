@@ -130,30 +130,6 @@
    }
   },
   {
-   "id": "sp_e",
-   "type": "particle_species",
-   "params": {
-    "preset": "electron",
-    "order": 20
-   }
-  },
-  {
-   "id": "sp_p",
-   "type": "particle_species",
-   "params": {
-    "preset": "proton",
-    "order": 20
-   }
-  },
-  {
-   "id": "sp_a",
-   "type": "particle_species",
-   "params": {
-    "preset": "alpha",
-    "order": 20
-   }
-  },
-  {
    "id": "pe",
    "type": "particle_emitter",
    "params": {
@@ -218,6 +194,49 @@
    "params": {
     "layer": 3
    }
+  },
+  {
+   "id": "pop",
+   "type": "particle_population",
+   "params": {
+    "order": 20,
+    "rows": [
+     {
+      "preset": "electron",
+      "enabled": true,
+      "name": "电子",
+      "q": -1.0,
+      "mass": 0.0005446623093681918,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#5599ff"
+     },
+     {
+      "preset": "proton",
+      "enabled": true,
+      "name": "质子",
+      "q": 1.0,
+      "mass": 1.0,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#ff5555"
+     },
+     {
+      "preset": "alpha",
+      "enabled": true,
+      "name": "α粒子",
+      "q": 2.0,
+      "mass": 4.0,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#ffaa33"
+     }
+    ]
+   },
+   "pos": [
+    560,
+    470
+   ]
   }
  ],
  "edges": [
@@ -413,16 +432,6 @@
   },
   {
    "from": [
-    "sp_a",
-    "types"
-   ],
-   "to": [
-    "pe",
-    "types"
-   ]
-  },
-  {
-   "from": [
     "ob",
     "out"
    ],
@@ -469,6 +478,16 @@
    "to": [
     "rel",
     "data"
+   ]
+  },
+  {
+   "from": [
+    "pop",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
    ]
   }
  ],

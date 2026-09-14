@@ -411,10 +411,76 @@ class Graph:
                 return name
         return None
 
+    # 物种来源节点:单品便捷节点 + 种群行表节点(#30)
+    _SPECIES_NODE_TYPES = ("particle_species", "particle_population")
+
+    @staticmethod
+    def _rows_of(node):
+        """节点 → 物种记录列表(particle_population 取行表;species 取自身)。"""
+        t = node.spec().get("type")
+        if t == "particle_population":
+            rows = node.params.get("rows") or []
+            return [dict(r) for r in rows if isinstance(r, dict)]
+        p = dict(node.params)
+        return [p]
+
+    def _resolve_species(self, emitter_id, warnings):
+        """解析发射器的物种列表(**接线决定归属**,#30)。
+
+        返回 [{"node", "row", "name", "q", "mass", "v_mult", "weight",
+               "color", "enabled", "order"}]:
+        - types 接 particle_population → 用它的行表(行序 = 优先级)
+        - types 接 particle_species  → 该单物种(1 行种群)
+        - types 未接线              → **兜底**:图内所有物种节点按 order 聚合,
+          并告警(以前这是唯一行为,且静默;现在只有兜底路径才如此)
+        - 未被接线覆盖的物种节点     → 忽略 + 告警(以前会静默参与生成)
+        """
+        out = []
+        src = self.inputs_map.get((emitter_id, "types"))
+        wired = set()
+        if src is not None:
+            node = self.nodes.get(src[0])
+            if node is not None and node.spec().get("type") in self._SPECIES_NODE_TYPES:
+                wired.add(src[0])
+                order = node.params.get("order", 20)
+                for i, row in enumerate(self._rows_of(node)):
+                    if not row.get("enabled", True):
+                        continue
+                    out.append({"node": src[0], "row": i, "order": order, **row})
+        # 图内其余物种节点
+        others = [nid for nid, n in self.nodes.items()
+                  if n.spec().get("type") in self._SPECIES_NODE_TYPES
+                  and nid not in wired]
+        if not out:
+            # 兜底:按 order 聚合全部物种节点(旧行为的兼容路径)
+            for nid in sorted(others,
+                              key=lambda x: (self.nodes[x].params.get("order", 20), x)):
+                node = self.nodes[nid]
+                for i, row in enumerate(self._rows_of(node)):
+                    if not row.get("enabled", True):
+                        continue
+                    out.append({"node": nid, "row": i,
+                                "order": node.params.get("order", 20), **row})
+            if out:
+                warnings.append({
+                    "code": "species_not_wired",
+                    "msg": "发射器的 types 未接线:已按图级兜底聚合全部物种节点"
+                           f"({', '.join(others)})。建议接入「粒子种群」或"
+                           f"「粒子物种」节点,明确归属",
+                })
+        elif others:
+            warnings.append({
+                "code": "species_unwired", "node": others[0],
+                "msg": f"这些物种节点没有被发射器 types 覆盖,不参与生成:"
+                       f"{', '.join(others)}(接线决定归属)",
+            })
+        return out
+
     # ================= 粒子域 =================
     _PARTICLE_OP_KINDS = {
         "particle_emitter": "emitter",
         "particle_species": "species",
+        "particle_population": "species",
         "particle_injection": "injection",
         "boris_integrator": "step",
         "leapfrog_integrator": "step",
@@ -446,6 +512,8 @@ class Graph:
         ops = []
         warnings = []
         slow = False
+        emitter_ids = [nid for nid in pnodes
+                       if self.nodes[nid].spec().get("type") == "particle_emitter"]
         for nid in pnodes:
             node = self.nodes[nid]
             t = node.spec()["type"]
@@ -453,6 +521,8 @@ class Graph:
             if kind is None:
                 slow = True  # 未知粒子域节点:不编译,成本徽标
                 continue
+            if t in self._SPECIES_NODE_TYPES:
+                continue   # 物种统一由 _resolve_species 产出(仅接线覆盖的那份,#30)
             ins = {}
             for (dst, dport), (src, _sport) in self.inputs_map.items():
                 if dst == nid:
@@ -494,8 +564,19 @@ class Graph:
                                    f"该场(可选)不会进表",
                         })
             ops.append(op)
-        # 显式顺序:order 升序,同序按节点 id 稳定排序(可复现)
+        # ---- 物种算子:按接线解析(#30;单品节点 = 1 行种群)----
+        for emit_id in emitter_ids:
+            for sp in self._resolve_species(emit_id, warnings):
+                params = {k: v for k, v in sp.items()
+                          if k not in ("node", "row", "order")}
+                params.setdefault("order", sp["order"])
+                ops.append({"kind": "species", "node": sp["node"], "type": "",
+                            "params": params, "inputs": {}, "order": sp["order"]})
+        # 显式顺序:order 升序,同序按节点 id 稳定排序(可复现);
+        # 同节点的多行物种保持行序(stable sort + 插入序)
         for op in ops:
+            if "order" in op:
+                continue
             try:
                 op["order"] = float(op["params"].get(
                     "order", self._PARTICLE_OP_ORDER.get(op["kind"], 999)))
@@ -503,6 +584,22 @@ class Graph:
                 op["order"] = self._PARTICLE_OP_ORDER.get(op["kind"], 999)
         ops.sort(key=lambda o: (o["order"], o["node"]))
         kinds = {o["kind"] for o in ops}
+        # 注入节点未被发射器 init 覆盖 → 不生效(#30:接线决定归属)
+        inj_nodes = [nid for nid in pnodes
+                     if self.nodes[nid].spec().get("type") == "particle_injection"]
+        if inj_nodes:
+            wired_inj = set()
+            for nid in emitter_ids:
+                src = self.inputs_map.get((nid, "init"))
+                if src is not None:
+                    wired_inj.add(src[0])
+            orphans = [n for n in inj_nodes if n not in wired_inj]
+            if orphans and any(o["kind"] == "injection" for o in ops):
+                warnings.append({
+                    "code": "injection_unwired", "node": orphans[0],
+                    "msg": f"注入节点 {', '.join(orphans)} 没有接到发射器的 init"
+                           f"输入,不生效(接线决定归属;确实不用请删除该节点)",
+                })
         if "encode" not in kinds:
             warnings.append({
                 "code": "no_encoder",

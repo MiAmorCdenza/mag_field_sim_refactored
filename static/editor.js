@@ -207,7 +207,7 @@ window.editor = (function () {
                     break;
                 }
             }
-            markSpeciesNodes();   // 标注"未接线但图级生效"的物种节点
+            markSpeciesNodes();   // 标注未接线(不参与生成)的物种/种群节点
             canvas.setDirty(true, true);
             setGraphDirty(false);   // 载入(服务器图/上传成功)后视为已同步
         } catch (err) {
@@ -274,6 +274,132 @@ window.editor = (function () {
         return row;
     }
 
+    // ---------- 行表编辑器(种群物种表;ptype="rows")----------
+    // 行 = 一个物种记录;支持:启用勾选 / 预设下拉(自动回填物理量)/
+    // 名称 / q / mass / v_mult / weight / 颜色 / 上移下移 / 删除 / 追加。
+    // 行序 = 抽取优先级(单粒子注入取第一个启用行)。
+    const SPECIES_PRESETS = {
+        electron: { name: "电子", q: -1.0, mass: 1 / 1836, v_mult: 1.0,
+                    color: "#5599ff" },
+        proton: { name: "质子", q: 1.0, mass: 1.0, v_mult: 1.0,
+                  color: "#ff5555" },
+        alpha: { name: "α粒子", q: 2.0, mass: 4.0, v_mult: 1.0,
+                 color: "#ffaa33" },
+    };
+
+    function rowsWidget(spec, value, onChange) {
+        const rows = Array.isArray(value) ? value.map(r => Object.assign({}, r))
+                                          : [];
+        const box = document.createElement("div");
+        box.className = "rows-editor";
+        const commit = () => onChange(rows.map(r => Object.assign({}, r)));
+
+        const head = document.createElement("div");
+        head.className = "rows-head";
+        head.innerHTML = "<span>启用</span><span>预设</span><span>名称</span>" +
+            "<span>q</span><span>m</span><span>v×</span><span>w</span><span>色</span><span></span>";
+        box.appendChild(head);
+
+        rows.forEach((r, i) => {
+            const line = document.createElement("div");
+            line.className = "rows-line";
+
+            const en = document.createElement("input");
+            en.type = "checkbox";
+            en.checked = r.enabled !== false;
+            en.onchange = () => { rows[i].enabled = en.checked; commit(); };
+
+            const pre = document.createElement("select");
+            for (const k of ["custom", "electron", "proton", "alpha"]) {
+                const o = document.createElement("option");
+                o.value = k; o.textContent = k;
+                if ((r.preset || "custom") === k) o.selected = true;
+                pre.appendChild(o);
+            }
+            pre.onchange = () => {
+                rows[i].preset = pre.value;
+                const p = SPECIES_PRESETS[pre.value];
+                if (p) Object.assign(rows[i], p);      // 预设自动回填
+                commit();
+                renderProps(selectedNode);             // 重建面板显示新值
+            };
+
+            const name = document.createElement("input");
+            name.type = "text"; name.value = r.name || "";
+            name.onchange = () => {
+                rows[i].name = name.value;
+                if (rows[i].preset !== "custom" && !SPECIES_PRESETS[rows[i].preset]) {
+                    rows[i].preset = "custom";
+                }
+                commit();
+            };
+
+            const num = (key, step) => {
+                const el = document.createElement("input");
+                el.type = "number"; el.step = step || "any";
+                el.value = r[key] !== undefined ? r[key] : 0;
+                el.onchange = () => {
+                    rows[i][key] = Number(el.value);
+                    if (key !== "weight") rows[i].preset = "custom";
+                    commit();
+                };
+                return el;
+            };
+
+            const col = document.createElement("input");
+            col.type = "color";
+            col.value = r.color || "#ff5555";
+            col.onchange = () => { rows[i].color = col.value; commit(); };
+
+            const up = document.createElement("button");
+            up.textContent = "↑"; up.className = "mini";
+            up.disabled = i === 0;
+            up.onclick = () => {
+                [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]];
+                commit(); renderProps(selectedNode);
+            };
+            const dn = document.createElement("button");
+            dn.textContent = "↓"; dn.className = "mini";
+            dn.disabled = i === rows.length - 1;
+            dn.onclick = () => {
+                [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]];
+                commit(); renderProps(selectedNode);
+            };
+            const del = document.createElement("button");
+            del.textContent = "✕"; del.className = "mini danger";
+            del.onclick = () => {
+                rows.splice(i, 1);
+                commit(); renderProps(selectedNode);
+            };
+
+            line.append(en, pre, name, num("q"), num("mass"), num("v_mult"),
+                        num("weight", 0.1), col, up, dn, del);
+            if (r.enabled === false) line.classList.add("off");
+            box.appendChild(line);
+        });
+
+        const add = document.createElement("button");
+        add.textContent = "＋ 添加一行";
+        add.className = "mini";
+        add.onclick = () => {
+            rows.push({ preset: "custom", name: "自定义粒子", q: 1.0,
+                        mass: 1.0, v_mult: 1.0, weight: 1.0,
+                        color: "#ff5555", enabled: true });
+            commit(); renderProps(selectedNode);
+        };
+        box.appendChild(add);
+
+        const sum = rows.filter(r => r.enabled !== false)
+                        .reduce((a, r) => a + (Number(r.weight) || 0), 0);
+        const info = document.createElement("div");
+        info.className = "hint";
+        info.textContent = `启用 ${rows.filter(r => r.enabled !== false).length}` +
+            ` / 共 ${rows.length} 行,权重合计 ${sum.toFixed(2)}` +
+            "(生成占比 = 该行权重 / 合计)";
+        box.appendChild(info);
+        return box;
+    }
+
     function renderProps(node) {
         const body = document.getElementById("props-body");
         body.innerHTML = "";
@@ -299,6 +425,23 @@ window.editor = (function () {
         }
         // params
         for (const [k, p] of Object.entries(spec.params)) {
+            if (p.ptype === "rows") {
+                // 行表用专用编辑器(不是单值控件)
+                const wrap = document.createElement("div");
+                wrap.className = "prop-row";
+                const lab = document.createElement("label");
+                lab.textContent = k + (p.desc ? " · " + p.desc : "");
+                wrap.appendChild(lab);
+                wrap.appendChild(rowsWidget(
+                    p, node.properties[k] ?? p.default, v => {
+                        node.properties[k] = v;
+                        window.protocol.sendParam(node.properties.spec_type,
+                                                  node, k, v);
+                        previewInjection(node, true);
+                    }));
+                body.appendChild(wrap);
+                continue;
+            }
             body.appendChild(widget(p, k, node.properties[k] ?? p.default,
                 v => {
                     node.properties[k] = v;
@@ -420,71 +563,44 @@ window.editor = (function () {
     }
 
     // ---------- 物种:真实种群读数 + 画布标注 ----------
-    // 事实:物种聚合是**图级**的(服务器聚合计划里所有 particle_species 节点),
-    // prev/next 链与发射器 types 接线只是表达习惯 —— 未接线的物种照样参与
-    // 生成。因此界面上必须:(a) 显示解析后的真实种群;(b) 标注未接线的
-    // species 节点;(c) 接链中段(只含前 N 个物种)时告警。
+    // 事实(#30 之后):**接线决定归属** —— 发射器 types 接谁,就只有谁的物种
+    // 参与生成;未接线的物种/种群节点被忽略(仅当 types 完全没接线时,服务器
+    // 才按图级兜底聚合并告警 species_not_wired)。界面上:(a) 显示服务器解析
+    // 出的真实种群;(b) 标注未接线节点(橙色 = 不参与生成)。
 
-    // 从发射器 types 输入出发走 prev 链,返回链上节点 id 数组(尾 → 头)
-    function wiredSpeciesChain() {
+    // 从发射器 types 输入出发,返回被接线覆盖的节点(单跳:types 直接接的那个)
+    function wiredSpeciesNodes() {
         const emitter = graph._nodes.find(n => n._spec &&
             n._spec.type === "particle_emitter");
         if (!emitter) return [];
         const slot = emitter.inputs.findIndex(i => i.name === "types");
         if (slot < 0 || emitter.inputs[slot].link == null) return [];
-        const chain = [];
         const link = graph.links[emitter.inputs[slot].link];
-        if (!link) return [];
-        let node = graph.getNodeById(link.origin_id);
-        const seen = new Set();
-        while (node && !seen.has(node.id)) {
-            seen.add(node.id);
-            if (!node._spec || node._spec.type !== "particle_species") break;
-            chain.push(node);
-            const ps = node.inputs.findIndex(i => i.name === "prev");
-            if (ps < 0 || node.inputs[ps].link == null) break;
-            const l2 = graph.links[node.inputs[ps].link];
-            node = l2 ? graph.getNodeById(l2.origin_id) : null;
-        }
-        return chain;
+        const node = link ? graph.getNodeById(link.origin_id) : null;
+        return node ? [node] : [];
     }
 
-    // 标注:未接线的 species 节点(青蓝色边)→ "图级生效"
+    // 标注:未接线的物种/种群节点(橙色 = 不参与生成)
     function markSpeciesNodes() {
-        const chain = wiredSpeciesChain();
-        const inChain = new Set(chain.map(n => n.id));
+        const wired = wiredSpeciesNodes();
+        const inWired = new Set(wired.map(n => n.id));
         const species = graph._nodes.filter(n => n._spec &&
-            n._spec.type === "particle_species");
-        const chainTail = chain.length ? chain[0] : null;
-        const emitter = graph._nodes.find(n => n._spec &&
-            n._spec.type === "particle_emitter");
-        let wiredTail = null;
-        if (emitter) {
-            const slot = emitter.inputs.findIndex(i => i.name === "types");
-            if (slot >= 0 && emitter.inputs[slot].link != null) {
-                const l = graph.links[emitter.inputs[slot].link];
-                wiredTail = l ? graph.getNodeById(l.origin_id) : null;
-            }
-        }
+            (n._spec.type === "particle_species" ||
+             n._spec.type === "particle_population"));
+        const hasWire = wired.length > 0;
         for (const n of species) {
-            const unconnected = !inChain.has(n.id);
-            n.boxcolor = unconnected ? "#2ec4b6" : null;   // 青蓝 = 未接线但生效
-            n.onDrawForeground = function (ctx) {
+            const unconnected = !inWired.has(n.id);
+            n.boxcolor = unconnected ? "#f0883e" : null;
+            n.onDrawForeground = unconnected ? function (ctx) {
                 if (!this.flags || this.flags.collapsed) return;
-                if (!unconnected) return;
                 ctx.save();
                 ctx.font = "10px sans-serif";
-                ctx.fillStyle = "#2ec4b6";
-                ctx.fillText("图级生效(未接线也算)", 6, this.size[1] - 6);
+                ctx.fillStyle = "#f0883e";
+                ctx.fillText(hasWire ? "未接线:不参与生成"
+                                     : "未接线(服务器按图级兜底)", 6,
+                             this.size[1] - 6);
                 ctx.restore();
-            };
-        }
-        // 接了链中段 → 只含链前 N 个物种(静默截断)
-        if (wiredTail && chainTail && wiredTail.id !== chainTail.id) {
-            const idx = chain.findIndex(n => n.id === wiredTail.id);
-            const included = idx < 0 ? "?" : (chain.length - idx);
-            window.toast(`⚠ types 接的是链中段:只含链前 ${included} 个物种` +
-                `(链上共 ${chain.length} 个)。建议接链尾,或让服务器读数为准`);
+            } : null;
         }
     }
 

@@ -24,6 +24,9 @@ enum class OpKind : uint8_t {
 
 struct EmitterOp {
     EmitterConfig cfg;
+    // 接线决定的归属(#30):types 接的物种节点 id(空 = 未接线,走图级兜底);
+    // init 接的注入节点 id(空 = 未接线 → 不启用注入)
+    std::string types_node, init_node;
 };
 
 struct StepOp {

@@ -21,19 +21,29 @@ C_PROTON = 0xff5555
 C_ALPHA = 0xffaa33
 
 
-def species_graph(alpha_enabled):
+def species_rows(alpha_enabled, proton_mass=1.0):
+    return [
+        {"preset": "electron", "name": "电子", "q": -1.0, "mass": 1 / 1836,
+         "v_mult": 1.0, "weight": 1.0, "color": "#5599ff", "enabled": True},
+        {"preset": "proton", "name": "质子", "q": 1.0, "mass": proton_mass,
+         "v_mult": 1.0, "weight": 1.0, "color": "#ff5555", "enabled": True},
+        {"preset": "alpha", "name": "α粒子", "q": 2.0, "mass": 4.0,
+         "v_mult": 1.0, "weight": 1.0, "color": "#ffaa33",
+         "enabled": alpha_enabled},
+    ]
+
+
+def species_graph(alpha_enabled, proton_mass=1.0):
+    """#30:物种用「粒子种群」行表(接线决定归属);α 行的 enabled 可切换。"""
     return {
         "version": 1,
         "lattice": {"preset": "tiny"},
         "nodes": [
             {"id": "dip", "type": "dipole", "input_defaults": {"ps": 0.5}},
             {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
-            {"id": "se", "type": "particle_species",
-             "params": {"preset": "electron", "order": 21}},
-            {"id": "sp", "type": "particle_species",
-             "params": {"preset": "proton", "order": 22}},
-            {"id": "sa", "type": "particle_species",
-             "params": {"preset": "alpha", "enabled": alpha_enabled, "order": 23}},
+            {"id": "pop", "type": "particle_population",
+             "params": {"order": 20,
+                        "rows": species_rows(alpha_enabled, proton_mass)}},
             {"id": "pe", "type": "particle_emitter",
              "params": {"mode": 1, "v_base": 500.0, "max_range": 15.0}},
             {"id": "bi", "type": "boris_integrator",
@@ -41,10 +51,9 @@ def species_graph(alpha_enabled):
             {"id": "oe", "type": "output_encoder"},
         ],
         "edges": [
-            # #28:无 prev/next 链;物种抽取优先级 = order(21/22/23)
             {"from": ["dip", "field"], "to": ["ob", "field"]},
             {"from": ["ob", "out"], "to": ["bi", "b"]},
-            {"from": ["sa", "types"], "to": ["pe", "types"]},
+            {"from": ["pop", "types"], "to": ["pe", "types"]},
         ],
         "outputs": {},
     }
@@ -103,9 +112,10 @@ async def main():
             f"启用物种应为 e/p 双色,实际 {[hex(c) for c in colors]}"
         print(f"✓ α 禁用:帧内 {hdr['n']} 粒子,颜色 = 电子+质子")
 
-        # 2) 启用 α:三色
-        await ws.send(json.dumps({"type": "node.param", "node": "sa",
-                                  "name": "enabled", "value": True}))
+        # 2) 启用 α(整表推送:行表是一个参数值)→ 三色
+        await ws.send(json.dumps({"type": "node.param", "node": "pop",
+                                  "name": "rows",
+                                  "value": species_rows(True)}))
         await wait_for(ws, lambda t: t[0] == "bake_progress"
                         and t[1]["state"] == "done")
         hdr2, view2 = await wait_for(ws, lambda t: t[0] == "s"
@@ -113,15 +123,16 @@ async def main():
         colors2 = frame_colors(view2)
         assert colors2 == {C_ELECTRON, C_PROTON, C_ALPHA}, \
             f"启用 α 后应为三色,实际 {[hex(c) for c in colors2]}"
-        print(f"✓ α 启用:帧内三色 = 电子+质子+α粒子")
+        print("✓ α 启用:帧内三色 = 电子+质子+α粒子")
 
-        # 3) 编辑物种(质子质量 → 2.0)仍正常出帧
-        await ws.send(json.dumps({"type": "node.param", "node": "sp",
-                                  "name": "mass", "value": 2.0}))
+        # 3) 编辑行内物理量(质子质量 → 2.0)仍正常出帧
+        await ws.send(json.dumps({"type": "node.param", "node": "pop",
+                                  "name": "rows",
+                                  "value": species_rows(True, proton_mass=2.0)}))
         await wait_for(ws, lambda t: t[0] == "bake_progress"
                         and t[1]["state"] == "done")
         await wait_for(ws, lambda t: t[0] == "s" and t[1]["v"] > hdr2["v"])
-        print("✓ 物种参数编辑后帧继续")
+        print("✓ 行内参数编辑后帧继续")
 
         # 4) 复位默认图,不留空屏状态
         await restore_default(ws)

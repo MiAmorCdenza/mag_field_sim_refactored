@@ -93,8 +93,8 @@ class ParticleEmitterNode(ParticleNodeBase):
     """粒子发射器:参数镜像 C++ EmitterConfig。
 
     执行序由 order 参数决定(默认 10,最先)。
-    types/init 两个入口是显式表达;实测语义见 REFACTOR_PLAN #22/#27:
-    物种与注入均按**图级声明**生效(留空不影响),接线只作可读性表达。
+    **接线决定归属**(#30):types 接的物种(种群节点/单品物种节点,可留空 =
+    图级兜底 + 告警)与 init 接的注入节点才生效;未接线的同类节点被忽略并告警。
     """
 
 
@@ -129,10 +129,10 @@ class ParticleSpeciesNode(ParticleNodeBase):
     设计上不用"发射器内的列表",而是独立声明节点 —— 物种可插拔、
     可组合(与场的原子节点同一哲学)。
 
-    生效方式(实测语义):物种是**图级声明** —— 图中所有 enabled 的
-    particle_species 节点都参与生成,与是否接线无关;顺序由 order 参数
-    决定(越小越先;单粒子注入取第一个)。types 端口保留为显式表达,
-    留空不影响生效(REFACTOR_PLAN #22/#27)。
+    生效方式(#30):**接线决定归属** —— 发射器的 types 接谁,就只有谁的物种
+    参与生成(多个物种请用「粒子种群」行表节点,或把本节点理解为"1 行种群")。
+    未接线的物种节点被忽略并告警(species_unwired);仅当 types 完全没接线时,
+    服务器才按图级兜底聚合(并告警 species_not_wired)。
     """
 
     def __init__(self, node_id, params=None):
@@ -151,6 +151,44 @@ class ParticleSpeciesNode(ParticleNodeBase):
                 self.params[k] = v
         elif name in ("name", "q", "mass", "v_mult", "weight", "color"):
             self.params["preset"] = "custom"
+
+
+@register_node(
+    type="particle_population",
+    name="粒子种群", category="粒子/来源", icon="☰", domain="particle",
+    inputs={},
+    outputs={"types": "any"},
+    params={
+        "order": Param("int", default=20, min=0, max=999,
+                       desc="抽取优先级(升序;单粒子注入取表内第一个物种)"),
+        # 行表:一行一个物种。属性面板提供表格编辑器(增删行/下拉预设/权重)
+        "rows": Param("rows", default=[
+            {"preset": "proton", "name": "质子", "q": 1.0, "mass": 1.0,
+             "v_mult": 1.0, "weight": 1.0, "color": "#ff5555", "enabled": True},
+            {"preset": "electron", "name": "电子", "q": -1.0,
+             "mass": 1.0 / 1836.0, "v_mult": 1.0, "weight": 1.0,
+             "color": "#5599ff", "enabled": True},
+        ], desc="物种行表:一行一个物种(行序 = 抽取优先级);"
+                "weight = 生成权重占比"),
+    },
+    presets=_SPECIES_PRESETS,
+    version=1,
+)
+class ParticlePopulationNode(ParticleNodeBase):
+    """粒子种群:一个节点 = 一个种群(行表),替代"N 个物种节点串链"。
+
+    设计(REFACTOR_PLAN #30):物种是**数据行**而非拓扑 —— 集合语义直接写在
+    节点上,行序即优先级,增删物种不改连线;多个发射器可各接一份种群
+    (归属随线走)。
+
+    与 particle_species 的关系:后者是"1 行种群"的便捷形式,两者输出同一
+    端口类型(types),可互换。发射器的 types 接谁,**就只有谁的物种参与生成**。
+    """
+
+    def compute(self, **inputs):
+        raise GraphError(
+            "粒子域节点 particle_population 由 C++ 原生管线执行,"
+            "不参与 Python 求值")
 
 
 @register_node(

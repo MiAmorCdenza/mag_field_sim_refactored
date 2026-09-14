@@ -615,3 +615,23 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
       诊断包在 `catch(...){}` 里静默吞掉,告警全部丢失。判空要用
       `contains() && is_string()`(同 plan_compiler 的 `slot_str`),catch 里
       也必须写日志
+30. **粒子种群行表 + 接线决定归属(#27 的 ④,已落地)**。物种是**数据行**,
+    不是拓扑:集合语义写在节点上,行序 = 优先级,增删物种不改连线。
+    - 新节点 `particle_population`(☰ 粒子种群):`rows` 参数 = 行表
+      (preset/name/q/mass/v_mult/weight/color/enabled),新参数类型 **`rows`**
+      (engine/ports.py STRUCT_TYPES),属性面板提供**表格编辑器**
+      (启用勾选/预设下拉自动回填/名称/q/m/v×/w/色/上移下移/删除/添加行 +
+      权重合计与占比提示)
+    - `particle_species` 保留为"**1 行种群**"(同一 types 端口类型,可互换)
+    - **接线决定归属**(语义修正):发射器 types 接谁就只有谁的物种参与;
+      未接线的物种/种群节点**被忽略**并告警 `species_unwired`;仅当 types
+      完全未接线时才按图级兜底聚合(告警 `species_not_wired`)。
+      注入同理:`init` 未接线 → 注入不生效(告警 `injection_unwired`)。
+      → 至此 #27 里"画布在骗人"的最后一类(未接线也生效)被彻底消除
+    - C++:`EmitterOp.types_node/init_node`(plan_compiler 解析 emitter 的
+      inputs),`set_plan` 只用 init 实际接到的注入算子
+    - 迁移:默认图 3 个物种节点 → 1 个种群节点(3 行);测试夹具同步
+      (test_ws_species 改用行表,并可整表推送改行内参数)
+    - ⚠ 又踩一次 #13:改 `core/plan.h` 后只做增量编译 → 服务器启动即退出
+      (退出码 1,无栈);**touch src/*.cpp 全量重编**后正常。头文件改动
+      等于全量重编,没有例外

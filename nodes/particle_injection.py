@@ -4,8 +4,9 @@
 - 独立文件,registry 扫描即注册(丢弃/修改即热加载)
 - 声明式节点:domain="particle" 不参与 Python 求值,plan 编译为
   `injection` 算子 → C++ InjectionConfig → Emitter mode 3
-- 端口化组合:spec 输出 → 发射器 init 输入。**实测语义:注入按图级生效**
-  (删掉这条线注入照样起作用,#27),接线只作可读性表达;确实弃用请删节点
+- 端口化组合:spec 输出 → 发射器 init 输入。**接线决定归属**(#30):只有
+  init 实际接到的注入节点生效;未接线的注入节点不生效并告警
+  (injection_unwired)
 - 物理约定:
   * 位置 (r, lat, lon) 为 GSM 球坐标(Re / 度);或直接 (x, y, z)
   * 速度 vpitch 模式:俯仰角相对**局部磁力线方向 B̂**,

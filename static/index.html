@@ -72,6 +72,25 @@
     }
     #sim-hud .dim { color: #8b949e; }
     #sim-hud .warn { color: #f0c674; }
+    /* 行表编辑器(粒子种群物种表) */
+    .rows-editor { font-size: 0.72rem; }
+    .rows-editor .rows-head, .rows-editor .rows-line {
+        display: grid; gap: 2px; align-items: center;
+        grid-template-columns: 18px 62px minmax(46px,1fr) 42px 46px 38px 38px 26px 78px;
+    }
+    .rows-editor .rows-head { color: var(--dim); margin-bottom: 2px; }
+    .rows-editor .rows-line { margin-bottom: 2px; }
+    .rows-editor .rows-line.off { opacity: 0.45; }
+    .rows-editor input, .rows-editor select {
+        width: 100%; min-width: 0; background: #21262d; color: var(--text);
+        border: 1px solid var(--border); border-radius: 3px; padding: 1px 2px;
+        font-size: 0.7rem;
+    }
+    .rows-editor input[type=color] { padding: 0; height: 18px; }
+    .rows-editor button.mini {
+        padding: 0 3px; font-size: 0.7rem; line-height: 1.4;
+    }
+    .rows-editor button.mini.danger { color: #f85149; }
     /* 场线色标图例(渲染项按 color_mode 写入;相对视口右上角) */
     #line-legend {
         position: absolute; right: 8px; top: 8px; z-index: 5;
@@ -90,8 +109,7 @@
     .prop-row label { display: block; color: var(--dim); font-size: 0.72rem; margin-bottom: 2px; }
     .prop-row input[type=range] { width: 100%; }
     .prop-row input[type=number], .prop-row input[type=text], .prop-row select {
-        width: 100%; background: #21262d; color: var(--text); border: 1px solid var(--border);
-        border-radius: 5px; padding: 3px 6px; font-size: 0.75rem;
+        width: 100%; background: #21262d; color: var(--text); border: 1px solid var(--border);        border-radius: 5px; padding: 3px 6px; font-size: 0.75rem;
     }
     .prop-row .val { color: var(--accent); float: right; font-size: 0.72rem; }
     .node-title { font-weight: 700; margin-bottom: 6px; }

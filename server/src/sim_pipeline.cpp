@@ -58,24 +58,27 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     // 后备计划的发射器保持由服务器 st.emitter 驱动(legacy 兼容)
     has_emitter_op = false;
     plan_count_ = 0;
+    std::string wired_init;   // 发射器 init 输入接的注入节点(空 = 未接线)
     for (const auto& op : plan.ops) {
         if (op.kind != OpKind::Emitter) continue;
         EmitterConfig ecfg = op.emitter.cfg;
         if (!species_types_.empty()) ecfg.types = species_types_;  // 物种节点优先
         plan_count_ = ecfg.count;                                  // 图内粒子数覆盖
+        wired_init = op.emitter.init_node;
         emitter = Emitter(ecfg);
         if (op.node_id != "__default") has_emitter_op = true;
         break;  // 首个 EmitterOp 生效(v1)
     }
-    // 单粒子注入:particle_injection 节点接入 → 发射器切 mode 3(确定性)
+    // 单粒子注入:**接线决定归属**(#30)——只有发射器 init 实际接到的那个
+    // 注入节点生效(以前只要图里有注入节点就生效,画布在骗人)
     has_injection_ = false;
     for (const auto& op : plan.ops) {
-        if (op.kind == OpKind::Injection && op.injection.enabled) {
-            emitter.set_injection(op.injection);
-            has_injection_ = true;
-            if (plan_count_ <= 0) plan_count_ = 1;  // 单粒子默认 1
-            break;
-        }
+        if (op.kind != OpKind::Injection || !op.injection.enabled) continue;
+        if (wired_init.empty() || op.node_id != wired_init) continue;
+        emitter.set_injection(op.injection);
+        has_injection_ = true;
+        if (plan_count_ <= 0) plan_count_ = 1;  // 单粒子默认 1
+        break;
     }
     // 俯仰角模式需要局部 B:绑定本管线的 B 表(spawn 时实时采样)
     emitter.set_field(&b_table);

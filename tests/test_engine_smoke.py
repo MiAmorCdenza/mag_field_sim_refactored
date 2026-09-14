@@ -364,27 +364,48 @@ def test_particle_species():
     assert n_e.params["name"] == "电子"
     print("✓ 加载即填充预设(JSON 仅 preset 字段)")
 
+    # #30:多物种改用「粒子种群」行表(接线决定归属);未接线的单品节点被忽略
+    doc = {
+        "version": 1, "lattice": {"preset": "tiny"},
+        "nodes": [
+            {"id": "pe", "type": "particle_emitter"},
+            {"id": "pop", "type": "particle_population", "params": {
+                "order": 20, "rows": [
+                    _row("电子", "electron", -1.0, 1 / 1836.0, 1.0, "#5599ff"),
+                    _row("质子", "proton", 1.0, 1.0, 2.0, "#ff5555"),
+                    _row("α粒子", "alpha", 2.0, 4.0, 1.0, "#ffaa33",
+                         enabled=False),
+                    _row("自定义粒子", "custom", 1.0, 1.0, 1.0),
+                ]}},
+            {"id": "sc_orphan", "type": "particle_species",
+             "params": {"preset": "alpha"}},
+            {"id": "oe", "type": "output_encoder"},
+        ],
+        "edges": [{"from": ["pop", "types"], "to": ["pe", "types"]}],
+        "outputs": {},
+    }
+    g.load_json(doc)
+    assert g.nodes["pop"].params["rows"][0]["name"] == "电子"
+    print("✓ 种群行表加载(行序 = 抽取优先级)")
+
     plan = g.particle_plan()
-    kinds = [o["kind"] for o in plan["ops"]]
     species = [o for o in plan["ops"] if o["kind"] == "species"]
-    assert kinds.count("species") == 4
-    by_id = {o["node"]: o for o in species}
-    assert by_id["sa"]["params"]["enabled"] is False
-    assert by_id["sc"]["params"]["q"] == 1.0  # 默认自定义粒子
-    # #28:顺序由显式 order 参数决定(se 21 < sp 22 < sa 23 < sc 24)
-    assert [o["node"] for o in species] == ["se", "sp", "sa", "sc"], \
-        [o["node"] for o in species]
-    assert [o["order"] for o in species] == [21, 22, 23, 24]
+    # 3 行启用(α 行 enabled=False 被剔除),全部挂在种群节点下,行序保留
+    assert len(species) == 3, species
+    assert [o["node"] for o in species] == ["pop"] * 3
+    assert [o["params"]["name"] for o in species] == ["电子", "质子", "自定义粒子"]
+    assert [o["params"]["weight"] for o in species] == [1.0, 2.0, 1.0]
+    assert [w["code"] for w in plan["warnings"]] == ["species_unwired"]
     em = next(o for o in plan["ops"] if o["kind"] == "emitter")
-    assert em["inputs"].get("types") == "sc"
-    print("✓ 计划聚合 4 个物种算子(order 显式排序 + 发射器 types)")
+    assert em["inputs"].get("types") == "pop"
+    print("✓ 计划聚合种群行(启用行 + 行序 + 未接线单品节点告警)")
 
     # 预设切换 + 手动编辑转自定义
-    g.set_param("sc", "preset", "alpha")
-    assert g.nodes["sc"].params["q"] == 2.0
-    assert g.nodes["sc"].params["mass"] == 4.0
-    g.set_param("sc", "q", 3.0)
-    assert g.nodes["sc"].params["preset"] == "custom"
+    g.set_param("sc_orphan", "preset", "alpha")
+    assert g.nodes["sc_orphan"].params["q"] == 2.0
+    assert g.nodes["sc_orphan"].params["mass"] == 4.0
+    g.set_param("sc_orphan", "q", 3.0)
+    assert g.nodes["sc_orphan"].params["preset"] == "custom"
     print("✓ 预设切换回填 + 手动编辑转 custom")
 
 
@@ -588,6 +609,81 @@ def test_plan_warnings():
     print("✓ 渲染项 data 断开 → slot=None(服务器告警:不会产出几何帧)")
 
 
+def _row(name, preset="custom", q=1.0, mass=1.0, weight=1.0,
+         color="#ff5555", enabled=True):
+    return {"preset": preset, "name": name, "q": q, "mass": mass,
+            "v_mult": 1.0, "weight": weight, "color": color, "enabled": enabled}
+
+
+def test_population_table():
+    """#30 粒子种群行表:接线决定归属;行序 = 优先级;未接线才兜底 + 告警。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+
+    def species_of(doc):
+        g.load_json(doc)
+        p = g.particle_plan()
+        return ([(o["node"], o["params"]["name"], o["params"]["weight"])
+                 for o in p["ops"] if o["kind"] == "species"],
+                [w["code"] for w in p["warnings"]])
+
+    pop_rows = [_row("质子", "proton", 1.0, 1.0, 1.0, "#ff5555"),
+                _row("电子", "electron", -1.0, 1 / 1836.0, 2.0, "#5599ff"),
+                _row("α粒子", "alpha", 2.0, 4.0, 1.0, "#ffaa33", enabled=False)]
+    base_nodes = [{"id": "pe", "type": "particle_emitter"},
+                  {"id": "bi", "type": "boris_integrator"},
+                  {"id": "oe", "type": "output_encoder"},
+                  {"id": "dip", "type": "dipole"},
+                  {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
+                  {"id": "pop", "type": "particle_population",
+                   "params": {"rows": pop_rows}}]
+    wire = [{"from": ["pop", "types"], "to": ["pe", "types"]},
+            {"from": ["dip", "field"], "to": ["ob", "field"]},
+            {"from": ["ob", "out"], "to": ["bi", "b"]}]
+
+    # (a) 种群接线:只有它的行参与,禁用行剔除,行序保留
+    sp, warns = species_of({"version": 1, "nodes": base_nodes, "edges": wire,
+                            "outputs": {}})
+    assert [s[1] for s in sp] == ["质子", "电子"], sp
+    assert [s[2] for s in sp] == [1.0, 2.0], sp
+    assert all(s[0] == "pop" for s in sp), sp
+    assert warns == [], warns
+    print("✓ 种群行表接线:只生成表内启用行,行序与权重原样传递")
+
+    # (b) 种群之外另有未接线物种节点 → 忽略 + 告警(以前会静默参与生成)
+    nodes = base_nodes + [{"id": "sp_extra", "type": "particle_species",
+                           "params": {"preset": "alpha"}}]
+    sp, warns = species_of({"version": 1, "nodes": nodes, "edges": wire,
+                            "outputs": {}})
+    assert [s[1] for s in sp] == ["质子", "电子"], sp
+    assert "species_unwired" in warns, warns
+    print("✓ 未接线物种节点被忽略并告警(接线决定归属)")
+
+    # (c) types 完全不接线 → 兜底聚合全部物种节点 + 告警
+    nodes = [n for n in base_nodes if n["id"] != "pop"] + [
+        {"id": "sp1", "type": "particle_species", "params": {"preset": "proton"}},
+        {"id": "pop", "type": "particle_population",
+         "params": {"rows": pop_rows[:2]}}]
+    no_types = [e for e in wire if e["to"][1] != "types"]
+    sp, warns = species_of({"version": 1, "nodes": nodes, "edges": no_types,
+                            "outputs": {}})
+    assert len(sp) == 3, sp            # 质子(单品) + 质子/电子(种群两行)
+    assert "species_not_wired" in warns, warns
+    print("✓ types 未接线 → 兜底聚合 + species_not_wired 告警")
+
+    # (d) 单品节点即"1 行种群":接线后单独生效
+    nodes = [n for n in base_nodes if n["id"] != "pop"] + [
+        {"id": "sp1", "type": "particle_species",
+         "params": {"preset": "electron"}}]
+    sp, warns = species_of({"version": 1, "nodes": nodes,
+                            "edges": no_types + [{"from": ["sp1", "types"],
+                                                  "to": ["pe", "types"]}],
+                            "outputs": {}})
+    assert [s[1] for s in sp] == ["电子"] and warns == [], (sp, warns)
+    print("✓ particle_species = 1 行种群(与种群节点同端口类型,可互换)")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -605,4 +701,5 @@ if __name__ == "__main__":
     test_lattice_axes_full_span()
     test_explicit_order_and_legacy_edges()
     test_plan_warnings()
+    test_population_table()
     print("\n全部冒烟测试通过 ✅")
