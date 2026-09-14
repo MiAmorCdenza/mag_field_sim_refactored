@@ -40,7 +40,12 @@ window.protocol = (function () {
         const bits = [`t = ${(s.t || 0).toFixed(2)} s`,
                       `n = ${s.n | 0}`,
                       `${(s.fps || 0).toFixed(1)} fps`];
-        if (g) bits.push(`N ${g._nodes.length}  E ${Object.keys(g.links || {}).length}`);
+        if (g) {
+            const real = g._nodes.filter(n => !n._isGhost).length;   // 虚影不计入
+            const gh = g._nodes.length - real;
+            bits.push(`N ${real}${gh ? "(+" + gh + " 隐式)" : ""}` +
+                      `  E ${Object.keys(g.links || {}).length}`);
+        }
         if (plan.count) {
             bits.push(plan.slow_path ? `计划粒子 ${plan.count} (slow_path)`
                                      : `计划粒子 ${plan.count}`);
@@ -213,6 +218,10 @@ window.protocol = (function () {
             }
             window.editor && window.editor.onPlanWarnings &&
                 window.editor.onPlanWarnings(warns);
+            // 隐式解析结果 → 画布摆出虚影节点 + 虚线(#31)
+            simStats.implicit = m.implicit || [];
+            window.editor && window.editor.onPlanImplicit &&
+                window.editor.onPlanImplicit(simStats.implicit);
             // 注入节点生效且 count>1:所有粒子初条件相同 → 精确重合(看起来仍
             // 是 1 个粒子)。必须显式告警,否则"改了 count 没变化"极易误判。
             if (m.degenerate_injection) {

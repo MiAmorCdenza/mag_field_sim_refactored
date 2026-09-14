@@ -114,6 +114,9 @@ class Registry:
                 "icon": s.get("icon", ""),
                 "version": s.get("version", 1),
                 "presets": s.get("presets"),  # 节点预设表(如粒子物种),前端下拉回填用
+                # 配套节点(#31):放置本节点时,若图中没有这些节点则一并放置
+                # (可选 wire = [本节点端口, 配套节点端口] 的自动连线)
+                "companions": s.get("companions") or [],
                 "inputs": {k: v.to_json() for k, v in s["inputs"].items()},
                 "outputs": dict(s["outputs"]),
                 "params": {k: v.to_json() for k, v in s["params"].items()},

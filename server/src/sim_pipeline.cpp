@@ -25,8 +25,11 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     max_range = 90.0;
     warnings_ = p.warnings;   // 编译期诊断(含 step_no_b / no_encoder …)
     has_encoder_ = false;
-    for (const auto& op : plan.ops)
+    has_step_op_ = false;
+    for (const auto& op : plan.ops) {
         if (op.kind == OpKind::Encode) has_encoder_ = true;
+        if (op.kind == OpKind::Step) has_step_op_ = true;
+    }
     for (const auto& op : plan.ops) {
         if (op.kind == OpKind::Step && op.step.max_range > max_range)
             max_range = op.step.max_range;

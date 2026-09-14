@@ -23,6 +23,8 @@ window.editor = (function () {
     }
     const canvas = new LGraphCanvas(canvasEl, graph);
     canvas.background_image = "";
+    // 虚影节点之间的虚线连线(图坐标;见 drawGhostLinks)
+    canvas.onDrawForeground = (ctx) => drawGhostLinks(ctx);
     // LiteGraph 默认在左下角画 graph.globaltime/iteration/fps —— 那是它自己
     // runStep 执行循环的统计,本项目从不调用 → 恒为 0,极易误判"仿真卡死"。
     // 实时统计改在 DOM 覆盖层 #sim-hud(protocol.js 定时刷新),此处静默。
@@ -93,6 +95,7 @@ window.editor = (function () {
         const nodes = [];
         const idMap = {};
         for (const n of graph._nodes) {
+            if (n[GHOST_FLAG]) continue;   // 虚影节点只用于显示,不入图 JSON
             // 优先保留原 JSON id(loadGraph 记录);新建节点用 "n"+数字
             const jsonId = n.properties.json_id || "n" + n.id;
             idMap[n.id] = jsonId;
@@ -134,6 +137,7 @@ window.editor = (function () {
     function loadGraph(doc) {
         try {
             graph.clear();
+            clearGhosts();   // 换图时虚影一并清掉(服务器会按新计划重报)
             const idToNode = {};
             for (const nd of doc.nodes) {
                 const cls = LiteGraph.registered_node_types[nd.type];
@@ -627,6 +631,11 @@ window.editor = (function () {
         renderPopulationReadout();
     }
 
+    // 服务器报告的隐式解析结果 → 摆出虚影节点 + 虚线(#31)
+    function onPlanImplicit(implicit) {
+        renderGhosts(implicit || []);
+    }
+
     // 单粒子初条件读数面板(与 3D 预览同源:服务器 L2 预览消息)
     function renderInjectionReadout(src) {
         const box = document.getElementById("inj-readout");
@@ -774,6 +783,145 @@ registerRenderItem({
     // ---------- 节点面板(v0.4 LiteGraph 无内置 showSearchTypes) ----------
     let paletteVisible = false;
 
+    // ---------- 隐式解析可视化 + 配套节点(#31)----------
+    // 两件事:
+    // 1) 服务器在 plan_status.implicit 里报告"引擎真正用到、但图里没有"的
+    //    东西(默认发射器 / 兜底物种 / 缺步进=冻结 / 缺编码器=不发帧)。
+    //    这里把它们摆成**虚影节点**(灰底虚线框、不可选中编辑),用**虚线**
+    //    连到相关真实节点 —— 画布不再隐瞒引擎的隐式行为。
+    // 2) 节点规格里的 companions:放置某节点时,缺什么补什么(如放发射器
+    //    自动补积分器 + 编码器;放物种/注入自动补发射器并按 wire 规则连线)。
+    const GHOST_FLAG = "_isGhost";
+    const IMPLICIT_LABEL = {
+        emitter: { title: "⟨隐式⟩ 默认发射器", color: "#4a4a2a", bg: "#2a2a1a" },
+        species: { title: "⟨隐式⟩ 兜底物种", color: "#4a4a2a", bg: "#2a2a1a" },
+        step: { title: "⟨缺失⟩ 积分器", color: "#4a2a2a", bg: "#2a1a1a" },
+        encoder: { title: "⟨缺失⟩ 输出编码器", color: "#4a2a2a", bg: "#2a1a1a" },
+    };
+    let ghostNodes = [];
+    let ghostLinks = [];   // [{from:{id,slot}, to:{id}}] 虚线,画在 onDrawForeground
+
+    function clearGhosts() {
+        for (const g of ghostNodes) {
+            const i = graph._nodes.indexOf(g);
+            if (i >= 0) graph._nodes.splice(i, 1);
+        }
+        ghostNodes = [];
+        ghostLinks = [];
+        canvas.setDirty(true, true);
+    }
+
+    // 隐式节点挂在粒子域列带(有发射器就挂它下面,否则挂当前视图中心)
+    function ghostAnchorX() {
+        const em = graph._nodes.find(n => n._spec &&
+            n._spec.type === "particle_emitter");
+        if (em) return em.pos[0];
+        const pn = graph._nodes.find(n => n._spec && n._spec.domain === "particle");
+        return pn ? pn.pos[0] : canvas.ds.offset[0] + 300;
+    }
+
+    function renderGhosts(implicit) {
+        clearGhosts();
+        if (!implicit || !implicit.length) return;
+        const em = graph._nodes.find(n => n._spec &&
+            n._spec.type === "particle_emitter");
+        const baseY = em ? em.pos[1] + 210 : canvas.ds.offset[1] + 200;
+        const x = ghostAnchorX();
+        implicit.forEach((imp, i) => {
+            const meta = IMPLICIT_LABEL[imp.kind] || { title: "⟨隐式⟩", color: "#3a3a3a", bg: "#222" };
+            const n = new LGraphNode(meta.title);
+            n.title = meta.title;
+            n.color = meta.color;
+            n.bgcolor = meta.bg;
+            n.boxcolor = imp.missing ? "#f85149" : "#d0a000";
+            n.pos = [x, baseY + i * 96];
+            n.size = [230, 60];
+            n.properties = {};
+            n[GHOST_FLAG] = true;
+            n._ghostKind = imp.kind;
+            n._ghostMsg = imp.msg || "";
+            // 画说明文字(节点内两行:标题 + 原因)
+            n.onDrawForeground = function (ctx) {
+                if (!this.flags || this.flags.collapsed) return;
+                ctx.save();
+                ctx.font = "10px sans-serif";
+                ctx.fillStyle = imp.missing ? "#ffb3ae" : "#e2c26a";
+                const words = String(this._ghostMsg || "");
+                const lines = [];
+                for (let k = 0; k < words.length; k += 26) lines.push(words.slice(k, k + 26));
+                lines.slice(0, 3).forEach((t, j) =>
+                    ctx.fillText(t, 6, 18 + j * 12));
+                ctx.restore();
+            };
+            graph._nodes.push(n);
+            ghostNodes.push(n);
+            // 虚线:隐式项 → 发射器(有发射器时)
+            if (em) ghostLinks.push({ from: n, to: em, kind: imp.kind });
+        });
+        canvas.setDirty(true, true);
+    }
+
+    // 虚线绘制:canvas.onDrawForeground 的 ctx 已在**图坐标**下
+    // (LiteGraph 先 ds.toCanvasContext 再画节点,onDrawForeground 在同一变换内)
+    function drawGhostLinks(ctx) {
+        if (!ghostLinks.length) return;
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1.6;
+        for (const l of ghostLinks) {
+            const a = l.from, b = l.to;
+            const ax = a.pos[0] + a.size[0] / 2;
+            const ay = a.pos[1] + a.size[1] / 2;
+            const bx = b.pos[0] + b.size[0] / 2;
+            const by = b.pos[1] + b.size[1] / 2;
+            ctx.strokeStyle = (a._ghostKind === "step" || a._ghostKind === "encoder")
+                ? "rgba(248,81,73,0.9)" : "rgba(208,160,0,0.9)";
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.bezierCurveTo(ax, (ay + by) / 2, bx, (ay + by) / 2, bx, by);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // 放置节点 + 缺失的配套节点(按 wire 规则自动连线;递归补齐,深度 2 ——
+    // 例:放「粒子种群」→ 补发射器 → 再补积分器+编码器 = 能跑起来的最小组合)
+    function addNodeWithCompanions(spec, pos, depth) {
+        depth = depth || 0;
+        const cls = LiteGraph.registered_node_types[spec.type];
+        if (!cls) return null;
+        const node = new cls();
+        node.pos = pos || [0, 0];
+        graph.add(node);
+        const placed = [node];
+        for (const comp of (spec.companions || [])) {
+            const compSpec = specByType[comp.type];
+            if (!compSpec) continue;
+            // 已有同类型节点 → 复用(仅按需连线)
+            let target = graph._nodes.find(n => !n[GHOST_FLAG] && n._spec &&
+                n._spec.type === comp.type);
+            if (!target) {
+                if (depth >= 2) continue;
+                const sub = addNodeWithCompanions(
+                    compSpec, [node.pos[0], node.pos[1] + 120 * (placed.length + 1)],
+                    depth + 1);
+                if (!sub) continue;
+                target = sub[0];
+                placed.push(...sub);
+            }
+            if (comp.wire) {
+                const [myPort, theirPort] = comp.wire;
+                const oi = node.outputs.findIndex(o => o.name === myPort);
+                const ii = target.inputs.findIndex(i => i.name === theirPort);
+                if (oi >= 0 && ii >= 0 && target.inputs[ii].link == null) {
+                    node.connect(oi, target, ii);
+                }
+            }
+        }
+        canvas.setDirty(true, true);
+        return placed;
+    }
+
     function renderPalette(filter) {
         const list = document.getElementById("palette-list");
         list.innerHTML = "";
@@ -783,18 +931,18 @@ registerRenderItem({
             if (kw && !hay.includes(kw)) continue;
             const item = document.createElement("button");
             item.className = "palette-item";
-            item.textContent = `${spec.icon || "⬡"} ${spec.name} · ${spec.category}`;
+            const comp = (spec.companions || []).length;
+            item.textContent = `${spec.icon || "⬡"} ${spec.name} · ${spec.category}` +
+                (comp ? `  (+${comp} 配套)` : "");
             item.onclick = () => {
                 hidePalette();
-                const cls = LiteGraph.registered_node_types[spec.type];
-                if (!cls) return;
-                const node = new cls();
                 const cx = canvas.ds.offset[0] + canvas.ds.scale * (canvas.canvas.width / 2);
                 const cy = canvas.ds.offset[1] + canvas.ds.scale * (canvas.canvas.height / 2);
-                node.pos = [cx - 70, cy - 20];
-                graph.add(node);
-                canvas.setDirty(true, true);
-                window.toast(`已添加节点: ${spec.name}`);
+                const placed = addNodeWithCompanions(spec, [cx - 70, cy - 20]);
+                if (!placed) return;
+                const extra = placed.length - 1;
+                window.toast(`已添加节点: ${spec.name}` +
+                    (extra ? `(+${extra} 个配套节点:放到能跑起来的最小组合)` : ""));
             };
             list.appendChild(item);
         }
@@ -815,7 +963,7 @@ registerRenderItem({
     // ---------- 层次化自动排布(与引擎同算法) ----------
     function autoLayout() {
         const gapX = 240, gapY = 110;
-        const nodes = graph._nodes;
+        const nodes = graph._nodes.filter(n => !n[GHOST_FLAG]);  // 虚影不参与排布
         if (!nodes.length) return;
         const domainOf = n => n._spec?.domain || "field";
         const renderNodes = nodes.filter(n => domainOf(n) === "render");
@@ -991,8 +1139,18 @@ registerRenderItem({
         }
     }
 
+    // 重放可能早于编辑器就绪(protocol.js 先连 WS)→ 用已缓存状态补齐一次,
+    // 否则隐式虚影/物种标注/告警红框在首次加载时不会出现
+    {
+        const s = window.simStats || {};
+        if (s.implicit) renderGhosts(s.implicit);
+        if (s.population) onPopulation(s.population);
+        if (s.warnings) onPlanWarnings(s.warnings);
+    }
+
     return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview,
-             onPopulation, markSpeciesNodes, onPlanWarnings,
+             onPopulation, markSpeciesNodes, onPlanWarnings, onPlanImplicit,
+             clearGhosts, addNodeWithCompanions,
              markGraphApplied: () => setGraphDirty(false),
              isGraphDirty: () => graphDirty };
 })();

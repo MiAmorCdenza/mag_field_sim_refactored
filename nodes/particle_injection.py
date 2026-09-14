@@ -52,6 +52,8 @@ from engine import register_node, Node, Port, Param, GraphError
         "vy": Param("scalar", default=0.0, desc="vy(km/s)"),
         "vz": Param("scalar", default=400.0, desc="vz(km/s)"),
     },
+    # 配套节点:放置注入节点时补一个发射器,并自动连 spec → init
+    companions=[{"type": "particle_emitter", "wire": ["spec", "init"]}],
     version=1,
 )
 class ParticleInjectionNode(Node):

@@ -57,6 +57,8 @@ struct SharedState {
     std::string plan_warnings_json;  // 上次广播的告警集合(变化判定用)
     json plan_warnings = json::array();
     std::string plan_status_json;    // 最近 plan_status(新连接重放:告警可见性)
+    std::string plan_implicit_json;  // 上次广播的隐式解析集合(变化判定用)
+    json plan_implicit = json::array();  // 隐式解析结果(画布虚线节点)
     json render_warnings = json::array();  // 渲染绑定解析告警(图上传时算) 
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     std::string source_preview_json;                // 最近 L2 初条件预览(新连接重放)
@@ -515,25 +517,50 @@ struct ServerApp::Impl {
                             for (const auto& w : st.render_warnings)
                                 wj.push_back(w);
                             std::string wjs = wj.dump();
+                            // 隐式解析结果(画布用虚线摆出来):引擎真正用到但
+                            // 图里没有的东西 —— 默认发射器 / 兜底物种 /
+                            // 缺步进(粒子冻结)/ 缺编码器(不发帧)
+                            json imp = json::array();
+                            if (!pipeline->has_emitter_op)
+                                imp.push_back({{"kind", "emitter"}, {"missing", false},
+                                               {"msg", "图内无发射器:用服务器默认发射器"
+                                                       "(全局粒子数与默认类型)"}});
+                            if (!pipeline->has_step_op())
+                                imp.push_back({{"kind", "step"}, {"missing", true},
+                                               {"msg", "图内无积分器:粒子冻结在生成点"}});
+                            if (pipeline->population().empty())
+                                imp.push_back({{"kind", "species"}, {"missing", false},
+                                               {"msg", "无物种声明:兜底粒子(白点 q=1 m=1)"}});
+                            if (!pipeline->has_encoder())
+                                imp.push_back({{"kind", "encoder"}, {"missing", true},
+                                               {"msg", "图内无输出编码器:不发送粒子帧"}});
+                            std::string ijs = imp.dump();
                             changed = (st.plan_slow_path != slow) ||
                                       (st.plan_notice_count != pcount) ||
                                       (st.plan_degenerate != degen) ||
-                                      (st.plan_warnings_json != wjs);
+                                      (st.plan_warnings_json != wjs) ||
+                                      (st.plan_implicit_json != ijs);
                             st.plan_slow_path = slow;
                             st.plan_notice_count = pcount;
                             st.plan_degenerate = degen;
                             st.plan_warnings_json = wjs;
                             st.plan_warnings = wj;
+                            st.plan_implicit_json = ijs;
+                            st.plan_implicit = imp;
                         }
                         if (changed) {
                             json m{{"type", "plan_status"}, {"slow_path", slow},
                                    {"count", pcount},
                                    {"degenerate_injection", degen},
-                                   {"warnings", st.plan_warnings}};
+                                   {"warnings", st.plan_warnings},
+                                   {"implicit", st.plan_implicit}};
                             {
                                 std::lock_guard<std::mutex> g(st.m);
                                 st.plan_status_json = m.dump();
                             }
+                            MFL("plan", "status_broadcast", Debug, "计划状态已广播",
+                                (nlohmann::json{{"warnings", st.plan_warnings.size()},
+                                                {"implicit", st.plan_implicit.size()}}));
                             broadcast_text(m.dump());
                         }
                         if (degen)

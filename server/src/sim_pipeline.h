@@ -67,6 +67,9 @@ public:
     // 计划含输出编码器:无编码器 = 不发送粒子帧(节点因此真正生效)
     bool has_encoder() const { return has_encoder_; }
 
+    // 计划含步进算子:无步进 = 粒子冻结在生成点(界面会摆出隐式节点说明)
+    bool has_step_op() const { return has_step_op_; }
+
     // 编译期诊断(含本管线追加的运行期项,如"注入+count>1 退化")
     const std::vector<PlanWarning>& warnings() const { return warnings_; }
 
@@ -107,6 +110,7 @@ private:
     int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
     bool degenerate_injection_ = false;        // 注入 + count>1 → 粒子全重合
     bool has_encoder_ = false;                 // 计划含编码器算子
+    bool has_step_op_ = false;                 // 计划含步进算子
     std::vector<PlanWarning> warnings_;        // 编译期 + 运行期诊断
     std::vector<PopulationEntry> population_;  // 解析后的种群(UI 读数)
     double population_weight_ = 0.0;           // Σweight

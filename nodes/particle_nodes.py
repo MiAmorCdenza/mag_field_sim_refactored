@@ -87,6 +87,10 @@ _SPECIES_PRESETS = {
                          desc="单粒子注入规格(留空亦可:注入是图级生效)")},
     outputs={},
     params=_EMITTER_PARAMS,
+    # 配套节点(#31):放置发射器时,缺什么补什么(顺序由 order 参数决定,
+    # 无需连线);已有同类型节点则复用,不重复放置
+    companions=[{"type": "boris_integrator"},
+                {"type": "output_encoder"}],
     version=1,
 )
 class ParticleEmitterNode(ParticleNodeBase):
@@ -120,6 +124,9 @@ class ParticleEmitterNode(ParticleNodeBase):
         "enabled": Param("bool", default=True, desc="参与生成(对应老版 checked)"),
     },
     presets=_SPECIES_PRESETS,
+    # 配套节点:放置物种/种群时补一个发射器,并自动连 types → types
+    # (已有发射器则直接连它)
+    companions=[{"type": "particle_emitter", "wire": ["types", "types"]}],
     version=1,
 )
 class ParticleSpeciesNode(ParticleNodeBase):
@@ -172,6 +179,7 @@ class ParticleSpeciesNode(ParticleNodeBase):
                 "weight = 生成权重占比"),
     },
     presets=_SPECIES_PRESETS,
+    companions=[{"type": "particle_emitter", "wire": ["types", "types"]}],
     version=1,
 )
 class ParticlePopulationNode(ParticleNodeBase):

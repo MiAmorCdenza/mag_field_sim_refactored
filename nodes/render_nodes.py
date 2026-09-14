@@ -64,6 +64,8 @@ class RenderPipelineStartNode(RenderNodeBase):
     inputs={"data": Port("vector_field", default=None,
                          desc="场槽位(必需:无数据边则不产出几何帧)")},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         # 留空 = 用渲染项自身的拓扑分类色(闭合蓝/开放红/太阳风绿);
@@ -92,6 +94,8 @@ class RenderItemFieldLinesNode(RenderNodeBase):
     inputs={"data": Port("vector_field", default=None,
                          desc="场槽位(必需:无数据边则不产出几何帧)")},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         "color": Param("string", default="",
@@ -117,6 +121,8 @@ class RenderItemEFieldLinesNode(RenderNodeBase):
     inputs={"data": Port("particle_buffer", default=None,
                          desc="可留空:粒子帧走 WS 推送通道,与连线无关")},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         "layer": Param("int", default=2, min=0, max=3,
@@ -135,6 +141,8 @@ class RenderItemParticlesNode(RenderNodeBase):
     inputs={"data": Port("particle_buffer", default=None,
                          desc="可留空:拖尾由客户端从已收粒子帧派生")},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         "layer": Param("int", default=2, min=0, max=3,
@@ -155,6 +163,8 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
     name="初条件预览渲染项", category="渲染", icon="◈", domain="render",
     inputs={},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         "layer": Param("int", default=3, min=0, max=3,
@@ -177,6 +187,8 @@ class RenderItemSourcePreviewNode(RenderNodeBase):
     inputs={"data": Port("scalar_field", default=None,
                          desc="标量场(待实现:当前无 JS 渲染项)")},
     outputs={},
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
     params={
         **_RENDER_COMMON,
         "marker_size": Param("scalar", default=0.3, min=0.05, max=2.0),
