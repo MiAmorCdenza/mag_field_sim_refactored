@@ -7,6 +7,7 @@ window.protocol = (function () {
     let ws = null;
 
     let serverGraph = null;
+    let serverParticleCount = 0;   // 服务器全局粒子数(图内覆盖失效时恢复)
     const debounceTimers = {};
 
     function wsSend(obj) {
@@ -119,6 +120,7 @@ window.protocol = (function () {
             window.editor.loadGraph(m.graph);
             setVersion(m.version);
             setParticles(m.particles);
+            serverParticleCount = m.particles || 0;
             // 无渲染域节点 → 3D 视口静默空屏(仿真仍正常,只是没人订阅输出)
             const hasRender = (m.graph.nodes || []).some(
                 n => String(n.type || "").startsWith("render_"));
@@ -150,6 +152,14 @@ window.protocol = (function () {
             window.toast("🔌 插件热更新:节点面板已刷新");
         } else if (m.type === "plan_status") {
             if (m.slow_path) window.toast("⚠ 粒子计划含未知算子:慢路径(slow_path)");
+            // 图内粒子数覆盖(发射器 count / 单粒子注入):同步界面徽标
+            if (typeof m.count === "number") {
+                if (m.count > 0) {
+                    setParticles(m.count);
+                } else if (serverParticleCount > 0) {
+                    setParticles(serverParticleCount);
+                }
+            }
         }
     }
 

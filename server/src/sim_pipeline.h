@@ -27,6 +27,7 @@ public:
     Plan plan;                 // 当前执行计划
     Emitter emitter;           // 运行时发射器(计划 EmitterOp 或后备配置)
     bool has_emitter_op = false;  // 计划含图内发射器节点(legacy WS 发射器参数被忽略)
+    bool has_injection_ = false;  // 计划含单粒子注入(确定性 mode 3)
     double max_range = 90.0;   // 当前计划最大作用半径(渲染绑定 rlim 用)
 
     explicit SimPipeline(const PipelineConfig& cfg);
@@ -34,6 +35,10 @@ public:
 
     // 切换执行计划(校验内核存在;含 EmitterOp 时重建发射器)
     bool set_plan(const Plan& p, std::string& err);
+
+    // 图内粒子数覆盖(0 = 沿用全局 --particles / UI 设置)
+    int plan_particle_count() const { return plan_count_; }
+    bool has_injection() const { return has_injection_; }
 
     // 按槽位名安装烘焙结果(B/E/drag/gravity)
     bool install_baked(const BakedField& f, std::string& err);
@@ -50,4 +55,5 @@ public:
 private:
     int32_t next_id_ = 0;
     std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
+    int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
 };

@@ -120,6 +120,25 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
 
 
 @register_node(
+    type="render_item_source_preview",
+    name="初条件预览渲染项", category="渲染", icon="◈", domain="render",
+    inputs={"prev": Port("any", default=None)},
+    outputs={"next": "any"},
+    params={
+        **_RENDER_COMMON,
+        "marker_size": Param("scalar", default=1.0, min=0.2, max=5.0),
+    },
+    version=1,
+)
+class RenderItemSourcePreviewNode(RenderNodeBase):
+    """单粒子初条件预览:生成点 + 速度矢量(L1 本地计算,零带宽)。
+
+    数据不来自烘焙帧:编辑器在参数变化时本地算出并直接派发
+    "source_preview" 通道,故本节点无 data 输入。
+    """
+
+
+@register_node(
     type="render_item_diagnostics",
     name="诊断点渲染项", category="渲染", icon="✚", domain="render",
     inputs={"prev": Port("any", default=None),

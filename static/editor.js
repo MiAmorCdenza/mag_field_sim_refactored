@@ -175,6 +175,14 @@ window.editor = (function () {
                     (nd.pos[0] === 0 && nd.pos[1] === 0))) {
                 autoLayout();
             }
+            // 图内含单粒子注入节点 → 载入即预览一次
+            for (const ndId of Object.keys(idToNode)) {
+                const n = idToNode[ndId];
+                if (n._spec && n._spec.type === "particle_injection") {
+                    previewInjection(n);
+                    break;
+                }
+            }
             canvas.setDirty(true, true);
         } catch (err) {
             window.toast("loadGraph 错误: " + err.message + "\n" + (err.stack || ""));
@@ -269,6 +277,8 @@ window.editor = (function () {
                 v => {
                     node.properties[k] = v;
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
+                    // 单粒子注入:参数变化即时刷新 3D 预览(L1 本地计算)
+                    previewInjection(node);
                     // 粒子物种:预设下拉 → 立即回填其它字段
                     // (与引擎 on_param 同表;面板重建后停止本循环)
                     if (spec.type === "particle_species" && k === "preset" &&
@@ -294,6 +304,50 @@ window.editor = (function () {
         } else {
             codePanel.classList.add("hidden");
         }
+        // 选中注入节点即预览(选中其它节点则清除预览)
+        previewInjection(node);
+    }
+
+    // ---------- 单粒子初条件预览(L1:本地计算 → 渲染宿主) ----------
+    // 与帧协议同一坐标约定:GSM(x,y,z) → Three(x,z,-y)
+    const gsm2scene = (x, y, z) => [x, z, -y];
+
+    function injectionPosGSM(p) {
+        const deg = Math.PI / 180;
+        if ((p.pos_mode || "rll") === "xyz") {
+            return [Number(p.x) || 0, Number(p.y) || 0, Number(p.z) || 0];
+        }
+        const r = Number(p.r) || 6.6;
+        const lat = (Number(p.lat) || 0) * deg;
+        const lon = (Number(p.lon) || 0) * deg;
+        return [r * Math.cos(lat) * Math.cos(lon),
+                r * Math.cos(lat) * Math.sin(lon),
+                r * Math.sin(lat)];
+    }
+
+    function previewInjection(node) {
+        if (!window.renderHost || !window.renderHost.dispatch) return;
+        const spec = node && node._spec;
+        if (!spec || spec.type !== "particle_injection") {
+            window.renderHost.dispatch("source_preview", null);
+            return;
+        }
+        const p = node.properties || {};
+        const g = injectionPosGSM(p);
+        let dir = null;
+        let vmag = Number(p.v) || 400;
+        if ((p.vel_mode || "vpitch") === "vxyz") {
+            const vx = Number(p.vx) || 0, vy = Number(p.vy) || 0, vz = Number(p.vz) || 0;
+            const n = Math.hypot(vx, vy, vz);
+            if (n > 1e-9) dir = gsm2scene(vx, vy, vz).map(c => c / n);
+            vmag = n;
+        }
+        window.renderHost.dispatch("source_preview", {
+            pos: gsm2scene(g[0], g[1], g[2]),
+            dir, vmag,
+            // vpitch 的速度方向依赖局部 B → 由 L2 服务器预览帧提供
+            note: dir ? "" : "vpitch:方向依赖局部 B(待 L2 服务器预览)",
+        });
     }
 
     // 内联渲染项代码模板

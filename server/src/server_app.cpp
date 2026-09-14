@@ -52,6 +52,7 @@ struct SharedState {
     std::string particle_plan_json = "{}";    // 粒子域执行计划(引擎权威)
     bool plan_dirty = false;
     bool plan_slow_path = false;
+    int plan_notice_count = -1;      // 计划广播过的图内粒子数(0=无覆盖)
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     EmitterConfig emitter;
     std::string bake_error;
@@ -102,6 +103,7 @@ std::string default_graph_json() {
     {"id": "rel", "type": "render_item_efield_lines"},
     {"id": "rpt", "type": "render_item_particles"},
     {"id": "rtrl", "type": "render_item_particle_trails"},
+    {"id": "rsp", "type": "render_item_source_preview"},
     {"id": "rdi", "type": "render_item_diagnostics"}
   ],
   "edges": [
@@ -128,7 +130,8 @@ std::string default_graph_json() {
     {"from": ["rfl", "next"], "to": ["rel", "prev"]},
     {"from": ["rel", "next"], "to": ["rpt", "prev"]},
     {"from": ["rpt", "next"], "to": ["rtrl", "prev"]},
-    {"from": ["rtrl", "next"], "to": ["rdi", "prev"]},
+    {"from": ["rtrl", "next"], "to": ["rsp", "prev"]},
+    {"from": ["rsp", "next"], "to": ["rdi", "prev"]},
     {"from": ["sp_e", "next"], "to": ["sp_p", "prev"]},
     {"from": ["sp_p", "next"], "to": ["sp_a", "prev"]},
     {"from": ["sp_a", "types"], "to": ["pe", "types"]},
@@ -410,14 +413,21 @@ struct ServerApp::Impl {
                     }
                     if (pipeline->set_plan(plan, perr)) {
                         bool slow = plan.slow_path;
+                        int pcount = pipeline->plan_particle_count();  // 0 = 无覆盖
+                        // 图内粒子数覆盖:先按计划调整缓冲,再全量重生
+                        if (pcount > 0 && pipeline->particles.count != (size_t)pcount)
+                            pipeline->particles.resize((size_t)pcount);
                         bool changed = false;
                         {
                             std::lock_guard<std::mutex> g(st.m);
-                            changed = (st.plan_slow_path != slow);
+                            changed = (st.plan_slow_path != slow) ||
+                                      (st.plan_notice_count != pcount);
                             st.plan_slow_path = slow;
+                            st.plan_notice_count = pcount;
                         }
                         if (changed) {
-                            json m{{"type", "plan_status"}, {"slow_path", slow}};
+                            json m{{"type", "plan_status"}, {"slow_path", slow},
+                                   {"count", pcount}};
                             broadcast_text(m.dump());
                         }
                         // 计划变更 → 全量重生:发射器/作用半径可能已换,
@@ -426,7 +436,9 @@ struct ServerApp::Impl {
                         pipeline->respawn_all();
                         MFL("plan", "applied", Info, "执行计划已应用",
                             (nlohmann::json{{"ops", plan.ops.size()},
-                                            {"slow_path", slow}}));
+                                            {"slow_path", slow},
+                                            {"count", pcount},
+                                            {"injection", pipeline->has_injection()}}));
                     } else {
                         MFL("plan", "rejected", Error, "执行计划校验失败",
                             (nlohmann::json{{"error", perr}}));
@@ -470,7 +482,8 @@ struct ServerApp::Impl {
                     st.respawn_flag = false;
                     rebuild_emitter = st.emitter_dirty;
                     st.emitter_dirty = false;
-                    if (pipeline->particles.count != (size_t)st.particle_count) {
+                    if (pipeline->particles.count != (size_t)st.particle_count &&
+                        pipeline->plan_particle_count() <= 0) {   // 图内覆盖优先
                         pipeline->particles.resize((size_t)st.particle_count);
                         respawn = true;
                     }

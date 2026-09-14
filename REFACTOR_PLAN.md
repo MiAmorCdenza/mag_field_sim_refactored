@@ -268,6 +268,14 @@ struct Plan { std::vector<PlanOp> ops; bool slow_path; };
   color/checked→enabled),预设 electron/proton/alpha 下拉自动回填
   (引擎 on_param + 前端 spec.presets 同表);计划编译聚合全部启用的
   物种 → 发射器类型列表,无物种节点时沿用服务器默认。
+- **单粒子注入节点**(`particle_injection`,OpKind::Injection):确定性
+  初条件(零随机),接发射器 `init` 端口即切 mode 3。位置 (r,lat,lon)
+  或 (x,y,z);速度 (v,俯仰角,回旋相位)**相对局部 B**(B 表由
+  SimPipeline 注入 `set_field`;无表退化 z 轴)或 (vx,vy,vz)。
+  发射器 `count` = 图内粒子数覆盖(0 = 沿用全局)。
+  前端 L1 预览:`renderer/items/source_preview.js` + editor 参数钩子
+  本地计算并派发 `source_preview` 通道(拖滑杆即时刷新、零带宽);
+  vpitch 方向依赖局部 B → 留待 L2 服务器预览帧。
 - 关键物理决策:经典核的磁力部分用 **Boris 旋转**(v×B 正交力线性踢
   每步涨能 ~(hω)²/4,200 步可爆 60×;旋转无条件稳定、精确保模);
   E/引力/阻力由各经典格式负责排布。RK4 保留全经典(教科书对照)。
@@ -476,3 +484,10 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 12. **默认图用 coarse 点阵**(legacy 视场,烘焙 ~12s 属"离线秒级"契约);
     tiny 留给测试预设;发射器默认 max_range=24 与域一致(域外采样
     钳到边界值,物理失真)
+13. **改 core/*.h 后必须全量重编**:ninja 头文件依赖有盲区,只重编部分
+    TU 会造成跨 TU 结构布局不一致(ODR),症状是启动即 0xC0000005、
+    崩溃栈停在 VCRUNTIME memcpy + 工作线程。做法:
+    `Get-ChildItem src\*.cpp | % { $_.LastWriteTime = Get-Date }` 再 build
+14. **新前端渲染项要两处登记**:`renderer/items/*.js` + `index.html` 脚本,
+    并在 `graphs/default_graph.json` 与 server_app 内置默认图**两处**
+    都加渲染节点与链边(否则实例化不了、视口无效果)

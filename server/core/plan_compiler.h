@@ -27,6 +27,7 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
     op.encode = EncodeOp{};
     op.respawn = RespawnOp{};
     op.species = SpeciesOp{};
+    op.injection = InjectionConfig{};
 
     if (kind == "emitter") {
         op.kind = OpKind::Emitter;
@@ -41,6 +42,7 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
         c.dist_ratio = p.value("dist_ratio", 1.0);
         c.spawn_radius_ratio = p.value("spawn_radius_ratio", 0.5);
         c.max_range = p.value("max_range", 90.0);
+        c.count = p.value("count", 0);
         return true;
     }
     if (kind == "step") {
@@ -85,6 +87,27 @@ inline bool op_from_json(const nlohmann::json& j, PlanOp& op, std::string& err) 
         op.species.type.color = col;
         op.species.name = p.value("name", "粒子");
         op.species.enabled = p.value("enabled", true);
+        return true;
+    }
+    if (kind == "injection") {
+        op.kind = OpKind::Injection;
+        const auto& p = j.value("params", nlohmann::json::object());
+        auto& inj = op.injection;
+        inj.enabled = true;
+        inj.pos_mode = (p.value("pos_mode", std::string("rll")) == "xyz") ? 1 : 0;
+        inj.r = p.value("r", 6.6);
+        inj.lat_deg = p.value("lat", 0.0);
+        inj.lon_deg = p.value("lon", 0.0);
+        inj.x = p.value("x", 6.6);
+        inj.y = p.value("y", 0.0);
+        inj.z = p.value("z", 0.0);
+        inj.vel_mode = (p.value("vel_mode", std::string("vpitch")) == "vxyz") ? 1 : 0;
+        inj.v_kms = p.value("v", 400.0);
+        inj.pitch_deg = p.value("pitch", 90.0);
+        inj.phase_deg = p.value("phase", 0.0);
+        inj.vx_kms = p.value("vx", 0.0);
+        inj.vy_kms = p.value("vy", 0.0);
+        inj.vz_kms = p.value("vz", 400.0);
         return true;
     }
     err = "未知计划算子: " + kind;

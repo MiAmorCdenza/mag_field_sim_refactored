@@ -28,7 +28,7 @@ class ParticleNodeBase(Node):
 
 
 _EMITTER_PARAMS = {
-    "mode": Param("int", default=0, min=0, max=2),
+    "mode": Param("int", default=0, min=0, max=3),
     "lon": Param("scalar", default=0.0, min=-180.0, max=180.0),
     "lat": Param("scalar", default=0.0, min=-90.0, max=90.0),
     "v_base": Param("scalar", default=400.0, min=50.0, max=2000.0),
@@ -37,6 +37,9 @@ _EMITTER_PARAMS = {
     "dist_ratio": Param("scalar", default=1.0, min=0.01, max=5.0),
     "spawn_radius_ratio": Param("scalar", default=0.5, min=0.01, max=5.0),
     "max_range": Param("scalar", default=90.0, min=5.0, max=200.0),
+    # 图内粒子数覆盖:0 = 沿用全局(--particles / UI 滑块)
+    "count": Param("int", default=0, min=0, max=200000,
+                   desc="发射数量:0=沿用全局粒子数"),
 }
 
 # 积分器公共输入(prev=链序边;b/e/drag=场槽位数据边)
@@ -72,7 +75,8 @@ _SPECIES_PRESETS = {
 @register_node(
     type="particle_emitter",
     name="粒子发射器", category="粒子/来源", icon="⏺", domain="particle",
-    inputs={"types": Port("any", default=None)},
+    inputs={"types": Port("any", default=None),
+            "init": Port("any", default=None)},
     outputs={"next": "any"},
     params=_EMITTER_PARAMS,
     version=1,
@@ -80,9 +84,9 @@ _SPECIES_PRESETS = {
 class ParticleEmitterNode(ParticleNodeBase):
     """粒子发射器:参数镜像 C++ EmitterConfig。
 
-    types 输入 = 物种链:把物种节点连成 prev/next 链后,把链尾的
-    types 接进来(一个槽位接受整条链)。不连 = 图中全部物种节点
-    (或无物种节点时服务器默认三种类型)。
+    types 输入 = 物种链(链尾接进来);init 输入 = 单粒子注入节点
+    (接上即切确定性单粒子模式,mode 参数被注入接管)。
+    不连 = 图中全部物种节点 / 服务器默认三种类型。
     """
 
 

@@ -248,7 +248,78 @@ int main() {
     }
 
     std::printf("=== 6) 原生算子注册 ===\n");
-    CHECK(native_builtins().size() == 6, "6 个内置原生算子已注册");
+    CHECK(native_builtins().size() == 8, "8 个内置原生算子已注册");
+
+    std::printf("=== 7) 单粒子注入(确定性初条件 + 俯仰角语义) ===\n");
+    {
+        // 均匀 B = +z,便于解析验证
+        Table3D uni;
+        uni.set_grid({-10.0, 0.0, 10.0}, {-10.0, 0.0, 10.0}, {-10.0, 0.0, 10.0},
+                     std::vector<double>(27, 0.0), std::vector<double>(27, 0.0),
+                     std::vector<double>(27, 1.0));
+
+        EmitterConfig ec;
+        ec.types = {{1.0, 1.0, 1.0, 1.0, 0xffffff}};   // 质子
+        ec.mode = 3;
+        ec.injection.enabled = true;
+        ec.injection.pos_mode = 0;                       // (r, lat, lon)
+        ec.injection.r = 6.6;
+        ec.injection.lat_deg = 0.0;
+        ec.injection.lon_deg = 0.0;
+        ec.injection.vel_mode = 0;                       // (v, pitch, phase)
+        ec.injection.v_kms = 400.0;
+        ec.injection.pitch_deg = 90.0;
+
+        Emitter em(ec);
+        em.set_field(&uni);
+        Particles p1, p2;
+        p1.resize(1);
+        p2.resize(1);
+        em.spawn(p1, 0, 1);
+        em.spawn(p2, 0, 2);
+        CHECK(p1.x[0] == p2.x[0] && p1.y[0] == p2.y[0] && p1.z[0] == p2.z[0] &&
+                  p1.vx[0] == p2.vx[0] && p1.vy[0] == p2.vy[0] && p1.vz[0] == p2.vz[0],
+              "同参数两次生成逐位一致(零随机)");
+        CHECK(std::abs(p1.x[0] - 6.6) < 1e-12 && std::abs(p1.y[0]) < 1e-12 &&
+                  std::abs(p1.z[0]) < 1e-12,
+              "(r,lat,lon) → 位置解析正确");
+        double vm = std::sqrt(p1.vx[0] * p1.vx[0] + p1.vy[0] * p1.vy[0] +
+                              p1.vz[0] * p1.vz[0]);
+        CHECK(std::abs(vm - 400.0 / 6371.0) < 1e-12, "速率 = 400 km/s(归一化)");
+        CHECK(std::abs(p1.vz[0]) < 1e-12, "俯仰角 90° → v⊥B(B=+z 时 vz≈0)");
+
+        ec.injection.pitch_deg = 0.0;                    // 沿 B
+        Emitter em0(ec);
+        em0.set_field(&uni);
+        Particles p3;
+        p3.resize(1);
+        em0.spawn(p3, 0, 3);
+        CHECK(std::abs(p3.vx[0]) < 1e-12 && std::abs(p3.vy[0]) < 1e-12 &&
+                  std::abs(p3.vz[0]) > 0.0,
+              "俯仰角 0° → v∥B(vx=vy=0)");
+
+        ec.injection.vel_mode = 1;                       // (vx, vy, vz)
+        ec.injection.vx_kms = 300.0;
+        ec.injection.vy_kms = 0.0;
+        ec.injection.vz_kms = 400.0;
+        Emitter em2(ec);
+        em2.set_field(&uni);
+        Particles p4;
+        p4.resize(1);
+        em2.spawn(p4, 0, 4);
+        double vm4 = std::sqrt(p4.vx[0] * p4.vx[0] + p4.vy[0] * p4.vy[0] +
+                               p4.vz[0] * p4.vz[0]);
+        CHECK(std::abs(vm4 - 500.0 / 6371.0) < 1e-12,
+              "vxyz 模式速率 = |(300,0,400)| = 500 km/s");
+
+        ec.injection.vel_mode = 0;
+        ec.injection.pitch_deg = 90.0;
+        Emitter em3(ec);                                 // 不设场表 → z 轴退化
+        Particles p5;
+        p5.resize(1);
+        em3.spawn(p5, 0, 5);
+        CHECK(std::abs(p5.vz[0]) < 1e-12, "无 B 表时退化参考轴(z 轴)不崩溃");
+    }
 
     std::printf(failures ? "\n[%d 项失败]\n" : "\n全部通过 ✅\n", failures);
     return failures ? 1 : 0;

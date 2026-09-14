@@ -32,6 +32,7 @@
     {"id": "rel", "type": "render_item_efield_lines"},
     {"id": "rpt", "type": "render_item_particles"},
     {"id": "rtrl", "type": "render_item_particle_trails"},
+    {"id": "rsp", "type": "render_item_source_preview"},
     {"id": "rdi", "type": "render_item_diagnostics"}
   ],
   "edges": [
@@ -58,7 +59,8 @@
     {"from": ["rfl", "next"], "to": ["rel", "prev"]},
     {"from": ["rel", "next"], "to": ["rpt", "prev"]},
     {"from": ["rpt", "next"], "to": ["rtrl", "prev"]},
-    {"from": ["rtrl", "next"], "to": ["rdi", "prev"]},
+    {"from": ["rtrl", "next"], "to": ["rsp", "prev"]},
+    {"from": ["rsp", "next"], "to": ["rdi", "prev"]},
     {"from": ["sp_e", "next"], "to": ["sp_p", "prev"]},
     {"from": ["sp_p", "next"], "to": ["sp_a", "prev"]},
     {"from": ["sp_a", "types"], "to": ["pe", "types"]},

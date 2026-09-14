@@ -388,6 +388,60 @@ def test_particle_species():
     print("✓ 预设切换回填 + 手动编辑转 custom")
 
 
+def test_particle_injection():
+    """单粒子注入插件:注册/端口/计划算子/参数透传。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    cls = reg.get("particle_injection")
+    assert cls is not None and cls._node_spec.get("domain") == "particle"
+    sp = cls._node_spec["params"]
+    assert sp["pos_mode"].choices == ["rll", "xyz"]
+    assert sp["vel_mode"].choices == ["vpitch", "vxyz"]
+    print("✓ 单粒子注入插件已注册(位置/速度双表示)")
+
+    # 发射器:init 输入端口 + count 图内粒子数
+    em = reg.get("particle_emitter")._node_spec
+    assert "init" in em["inputs"], "发射器应有 init 注入端口"
+    assert "types" in em["inputs"]
+    assert em["params"]["count"].default == 0
+    assert em["params"]["mode"].max == 3
+    print("✓ 发射器:init 端口 + count(0=沿用全局)+ mode≤3")
+
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+    doc = {
+        "version": 1, "lattice": {"preset": "tiny"},
+        "nodes": [
+            {"id": "inj", "type": "particle_injection",
+             "params": {"pos_mode": "rll", "r": 6.6, "lat": 0.0, "lon": 0.0,
+                        "vel_mode": "vpitch", "v": 400.0, "pitch": 90.0}},
+            {"id": "sp", "type": "particle_species", "params": {"preset": "proton"}},
+            {"id": "pe", "type": "particle_emitter", "params": {"count": 1}},
+            {"id": "bi", "type": "boris_integrator"},
+            {"id": "oe", "type": "output_encoder"},
+        ],
+        "edges": [
+            {"from": ["inj", "spec"], "to": ["pe", "init"]},
+            {"from": ["sp", "types"], "to": ["pe", "types"]},
+            {"from": ["pe", "next"], "to": ["bi", "prev"]},
+            {"from": ["bi", "next"], "to": ["oe", "prev"]},
+        ],
+        "outputs": {},
+    }
+    g.load_json(doc)
+    plan = g.particle_plan()
+    kinds = [o["kind"] for o in plan["ops"]]
+    assert "injection" in kinds, kinds
+    inj = next(o for o in plan["ops"] if o["kind"] == "injection")
+    assert inj["node"] == "inj"
+    assert inj["params"]["pos_mode"] == "rll"
+    assert inj["params"]["vel_mode"] == "vpitch"
+    assert inj["params"]["pitch"] == 90.0 and inj["params"]["r"] == 6.6
+    emit = next(o for o in plan["ops"] if o["kind"] == "emitter")
+    assert emit["params"]["count"] == 1
+    assert emit["inputs"]["init"] == "inj"
+    print("✓ 计划含 injection 算子 + count=1 + init 指向注入节点")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -401,4 +455,5 @@ if __name__ == "__main__":
     test_render_domain()
     test_particle_domain()
     test_particle_species()
+    test_particle_injection()
     print("\n全部冒烟测试通过 ✅")

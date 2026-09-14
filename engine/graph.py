@@ -379,6 +379,7 @@ class Graph:
     _PARTICLE_OP_KINDS = {
         "particle_emitter": "emitter",
         "particle_species": "species",
+        "particle_injection": "injection",
         "boris_integrator": "step",
         "leapfrog_integrator": "step",
         "rk4_integrator": "step",

@@ -19,6 +19,7 @@ enum class OpKind : uint8_t {
     Encode,    // 二进制编码(网络帧;21 字节/粒子)
     Respawn,   // 预留:状态 1/2 粒子逐帧重生(v1 未启用,legacy 语义 = 事件重生)
     Species,   // 粒子物种声明(particle_species 节点 → 聚合进发射器类型列表)
+    Injection, // 单粒子注入(particle_injection 节点 → 确定性初条件,mode 3)
 };
 
 struct EmitterOp {
@@ -54,6 +55,7 @@ struct PlanOp {
     EncodeOp encode;
     RespawnOp respawn;
     SpeciesOp species;
+    InjectionConfig injection;   // 单粒子注入初条件
 };
 
 struct Plan {
@@ -73,6 +75,8 @@ struct NativeNodeInfo {
 inline const std::vector<NativeNodeInfo>& native_builtins() {
     static const std::vector<NativeNodeInfo> builtins = {
         {"particle_emitter", "粒子发射器", "粒子/来源"},
+        {"particle_species", "粒子物种", "粒子/来源"},
+        {"particle_injection", "单粒子注入", "粒子/来源"},
         {"boris_integrator", "Boris 积分器", "粒子/积分"},
         {"leapfrog_integrator", "蛙跳积分器", "粒子/积分"},
         {"rk4_integrator", "RK4 积分器", "粒子/积分"},
