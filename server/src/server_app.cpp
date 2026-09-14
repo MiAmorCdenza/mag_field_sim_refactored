@@ -54,6 +54,7 @@ struct SharedState {
     bool plan_slow_path = false;
     int plan_notice_count = -1;      // 计划广播过的图内粒子数(0=无覆盖)
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
+    std::string source_preview_json;                // 最近 L2 初条件预览(新连接重放)
     EmitterConfig emitter;
     std::string bake_error;
     bool bake_failed = false;
@@ -211,6 +212,40 @@ struct ServerApp::Impl {
         json j{{"type", "bake_progress"}, {"seq", seq}, {"state", state}};
         if (!note.empty()) j["note"] = note;
         broadcast_text(j.dump());
+    }
+
+    // L2 单粒子初条件预览:计划应用后 / 烘焙应用后广播(含局部 B 与由同一套
+    // 数学给出的速度方向)。标量按积分器单位换算,前端只做坐标重映射。
+    void broadcast_source_preview() {
+        if (!pipeline || !pipeline->has_injection()) {
+            std::lock_guard<std::mutex> g(st.m);
+            st.source_preview_json.clear();   // 图内已无注入节点 → 作废缓存
+            return;
+        }
+        SourcePreview sp = pipeline->source_preview();
+        if (!sp.valid) return;
+        json j{{"type", "source_preview"},
+               {"pos", {sp.pos.x, sp.pos.y, sp.pos.z}},
+               {"dir", {sp.v_dir.x, sp.v_dir.y, sp.v_dir.z}},
+               {"bdir", {sp.b_dir.x, sp.b_dir.y, sp.b_dir.z}},
+               {"vmag", sp.v_kms},
+               {"b_nt", sp.b_nt},
+               {"r_g_re", sp.r_g_re},
+               {"gyro_s", sp.gyro_s},
+               {"pitch", sp.pitch_deg},
+               {"phase", sp.phase_deg},
+               {"q_over_m", sp.q_over_m},
+               {"has_b", sp.has_b},
+               {"pos_mode", sp.pos_mode},
+               {"vel_mode", sp.vel_mode},
+               {"note", sp.note}};
+        std::string payload;
+        {
+            std::lock_guard<std::mutex> g(st.m);
+            st.source_preview_json = j.dump();
+            payload = st.source_preview_json;
+        }
+        broadcast_text(payload);
     }
 
     // 提交烘焙请求(latest-wins)
@@ -434,6 +469,7 @@ struct ServerApp::Impl {
                         // 旧位置粒子(如 r=90)会被新 max_range 判死,
                         // 只重生死亡粒子救不回整批
                         pipeline->respawn_all();
+                        broadcast_source_preview();   // 注入参数一改即预览
                         MFL("plan", "applied", Info, "执行计划已应用",
                             (nlohmann::json{{"ops", plan.ops.size()},
                                             {"slow_path", slow},
@@ -465,6 +501,7 @@ struct ServerApp::Impl {
                     MFL("bake", "bake_applied", Info, "烘焙结果已应用", (nlohmann::json{{"seq", applied_seq}, {"slots", done->size()}}));
                     // 渲染绑定:场线/电场线几何帧(烘焙后一次性广播)
                     run_render_bindings(applied_seq);
+                    broadcast_source_preview();   // B 表就绪 → 预览含真实局部 B
                 }
                 if (failed) {
                     broadcast_progress(fseq, "error", ferr);
@@ -489,6 +526,9 @@ struct ServerApp::Impl {
                     }
                     if (rebuild_emitter && !pipeline->has_emitter_op) {
                         pipeline->emitter = Emitter(st.emitter);
+                        // 重建后重新绑定 B 表:否则注入俯仰角模式失去局部 B
+                        // (静默回退 z 轴,预览与生成都会偏)
+                        pipeline->emitter.set_field(pipeline->table_for("B"));
                         pipeline->reapply_species();  // 物种声明优先于 legacy 默认类型
                         respawn = true;
                     }
@@ -508,7 +548,8 @@ struct ServerApp::Impl {
                     std::lock_guard<std::mutex> g(st.m);
                     ver = st.graph_version;
                 }
-                json header{{"type", "s"}, {"n", body.size() / 21}, {"v", ver}};
+                json header{{"type", "s"}, {"n", body.size() / 21}, {"v", ver},
+                            {"t", pipeline->sim_time()}};
                 std::string hs = header.dump();
                 uint32_t hlen = (uint32_t)hs.size();
                 std::string packet;
@@ -654,6 +695,13 @@ struct ServerApp::Impl {
                 if (!cached.empty())
                     MFL("render", "geom_replay", Debug, "几何帧已补发",
                         (nlohmann::json{{"frames", cached.size()}}));
+                // L2 预览重放(计划/烘焙时算好,新连接补发:否则后连的页面
+                // 永远看不到初条件预览 —— 它只在事件点广播)
+                {
+                    std::lock_guard<std::mutex> g2(st.m);
+                    if (!st.source_preview_json.empty())
+                        conn.send_text(st.source_preview_json);
+                }
                 LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
             .onclose([this](crow::websocket::connection& conn, const std::string&) {
@@ -698,6 +746,8 @@ struct ServerApp::Impl {
                                 st.graph_version = ver;
                                 st.render_bindings_json = rb_json;
                                 st.geom_cache.clear();  // 图变了,旧几何帧作废(新烘焙重产)
+                                st.source_preview_json.clear();  // 旧预览同理作废
+                                if (pipeline) pipeline->reset_sim_time();  // 换图 → t 归零
                                 if (plan_ok) {
                                     st.particle_plan_json = plan_json;
                                     st.plan_dirty = true;

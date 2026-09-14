@@ -273,9 +273,13 @@ struct Plan { std::vector<PlanOp> ops; bool slow_path; };
   或 (x,y,z);速度 (v,俯仰角,回旋相位)**相对局部 B**(B 表由
   SimPipeline 注入 `set_field`;无表退化 z 轴)或 (vx,vy,vz)。
   发射器 `count` = 图内粒子数覆盖(0 = 沿用全局)。
-  前端 L1 预览:`renderer/items/source_preview.js` + editor 参数钩子
-  本地计算并派发 `source_preview` 通道(拖滑杆即时刷新、零带宽);
-  vpitch 方向依赖局部 B → 留待 L2 服务器预览帧。
+  **初条件预览两级**:L1 本地(editor.js + `renderer/items/source_preview.js`,
+  拖滑杆即时刷新、零带宽);**L2 服务器**(计划应用/烘焙后广播
+  `source_preview`:位置 + 局部 B(nT)+ 速度方向 + R_g + 回旋周期,
+  数学与生成共用 emitters.h 的 `injection_position`/`injection_velocity`,
+  故与发射器逐位一致;标量用积分器常数 31200 nT/表单位、2988.5959
+  换回物理量)。前端属性面板显示读数、3D 画 v̂(绿)+ b̂(蓝)双箭头。
+  L3(计划)预测轨道轨迹(用表场积分若干周期画弹跳/漂移路径)。
 - 关键物理决策:经典核的磁力部分用 **Boris 旋转**(v×B 正交力线性踢
   每步涨能 ~(hω)²/4,200 步可爆 60×;旋转无条件稳定、精确保模);
   E/引力/阻力由各经典格式负责排布。RK4 保留全经典(教科书对照)。
@@ -491,3 +495,26 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 14. **新前端渲染项要两处登记**:`renderer/items/*.js` + `index.html` 脚本,
     并在 `graphs/default_graph.json` 与 server_app 内置默认图**两处**
     都加渲染节点与链边(否则实例化不了、视口无效果)
+15. **节点标题必须在构造器里给定**:`LGraphNode.call(this, "")` 会落到
+    LiteGraph 的 `title || "Unnamed"` 回退,而 `registerNodeType` 只写**类级**
+    `T.title`(画布读实例 `this.title`)→ 曾导致整图节点全显示 "Unnamed"。
+    载入时 `nd.title || 插件名`;导出只在用户改过标题时写 `title`
+16. **别用 LiteGraph 自带左下角覆盖层判断运行状态**:它画的是
+    `graph.globaltime/iteration/fps`,属它自己的 `runStep` 执行循环,
+    本项目从不调用 → **恒为 0**,极易误判"卡死"。已在 editor.js 覆写
+    `canvas.renderInfo`,显示真实值(仿真时间/粒子数/WS 帧率/节点边数)
+17. **仿真时间来自帧头 `t`**(server_app 每帧写 `pipeline->sim_time()`,
+    名义步进累积 `Σ dt×substeps`),`reset_sim_time()` 只在 `graph.upload`
+    调用 —— 调参重编译计划**不重置**,便于观察连续演化
+18. **单粒子预览与生成共用同一套数学**(emitters.h 的
+    `injection_position` / `injection_velocity`):预览另写一套必然漂移。
+    `headless.exe` 第 7 节断言"预览速度 == 生成速度(逐位)";
+    预览还镜像了生成路径的两处钳制(r<1.05 抬升、v≥c 钳制),否则
+    读数与实际粒子不符
+19. **事件型文本帧(如 source_preview)必须缓存并按新连接重放**,
+    否则后连的页面永远收不到(只在事件点广播一次)。缓存字段
+    `st.source_preview_json`,与几何帧 `st.geom_cache` 同机制,
+    `graph.upload` 时一并作废
+20. **表插值 vs 解析场**:偶极场 ∝1/r³ 凸 → 三线性插值在格点间**偏高**
+    (r=6.6:tiny ×1.65、coarse ×1.21,方向不受影响)。粒子只认表,
+    所以预览/读数取**表值**才是诚实的;定量结论请用 coarse 复核

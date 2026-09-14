@@ -27,6 +27,50 @@ struct InjectionConfig {
     double vx_kms = 0.0, vy_kms = 0.0, vz_kms = 400.0;
 };
 
+// 表内 B 的归一化单位:B_code = B_nT / 31200(与 nodes/efield.py 的 _B_SCALE、
+// legacy get_field 的 scale_factor 同源)。Boris 的 q_prime = (q/m)·2988.5959
+// 即"每个表单位对应的回旋角频率",故 ω_c[rad/s] = |q/m|·2988.5959·|B_code|,
+// 反推 1 表单位 = 2988.5959 / (9.58e7·1e-9) ≈ 31200 nT,两处自洽。
+constexpr double B_NT_PER_CODE = 31200.0;
+constexpr double Q_PRIME_PER_B = 2988.5959;   // boris.h 同一常数(单一来源)
+
+// 注入位置(GSM,Re):pos_mode 1 = (x,y,z),0 = (r, lat, lon)
+inline Vec3 injection_position(const InjectionConfig& inj) {
+    if (inj.pos_mode == 1) return Vec3(inj.x, inj.y, inj.z);
+    double lon = inj.lon_deg * M_PI / 180.0;
+    double lat = inj.lat_deg * M_PI / 180.0;
+    return Vec3(inj.r * std::cos(lat) * std::cos(lon),
+                inj.r * std::cos(lat) * std::sin(lon),
+                inj.r * std::sin(lat));
+}
+
+// 注入速度方向(单位矢量)+ 速率(km/s)。
+// b = 位置处局部磁场(表单位);has_b=false 表示 B≈0 → 回退 z 轴(与生成路径
+// 完全同一套数学:俯仰角相对 b̂,相位在 (ê₁,ê₂) 平面内旋转)。
+inline Vec3 injection_velocity(const InjectionConfig& inj, const Vec3& b,
+                               bool& has_b, double& speed_kms) {
+    if (inj.vel_mode == 1) {                 // (vx,vy,vz) 直接给定
+        Vec3 vv(inj.vx_kms, inj.vy_kms, inj.vz_kms);
+        double n = vv.norm();
+        has_b = false;
+        speed_kms = (n > 1e-12) ? n : 0.0;
+        return (n > 1e-12) ? vv * (1.0 / n) : Vec3(0, 0, 1);
+    }
+    double bm = b.norm();
+    has_b = (bm > 1e-12);
+    Vec3 bh = has_b ? b * (1.0 / bm) : Vec3(0, 0, 1);
+    Vec3 ref(0, 0, 1);
+    if (std::abs(bh.dot(ref)) > 0.99) ref = Vec3(1, 0, 0);
+    Vec3 e1 = bh.cross(ref);
+    double n1 = e1.norm();
+    e1 = (n1 > 1e-12) ? e1 * (1.0 / n1) : Vec3(1, 0, 0);
+    Vec3 e2 = bh.cross(e1);
+    double a = inj.pitch_deg * M_PI / 180.0;
+    double ph = inj.phase_deg * M_PI / 180.0;
+    speed_kms = inj.v_kms;
+    return bh * std::cos(a) + (e1 * std::cos(ph) + e2 * std::sin(ph)) * std::sin(a);
+}
+
 struct EmitterConfig {
     int mode = 0;              // 0=定向盘面 1=全向球面 2=体积随机 3=单粒子注入
     double lon_deg = 0.0;      // 发射方向经度(0/2 模式)
@@ -72,6 +116,11 @@ public:
     // 局部磁场表(俯仰角模式需要 B 方向构造正交基;空表 → z 轴退化)
     void set_field(const Table3D* b) { field_ = b; }
 
+    // 只读访问(L2 初条件预览复用同一套注入数学)
+    const InjectionConfig& injection() const { return cfg_.injection; }
+    const Table3D* field() const { return field_; }
+    const std::vector<ParticleType>& types() const { return cfg_.types; }
+
     void spawn(Particles& p, size_t idx, int32_t id) {
         double max_r = cfg_.max_range;
         Vec3 pos, base_dir;
@@ -103,37 +152,14 @@ public:
             base_dir = W * -1.0;
         } else if (cfg_.mode == 3 && cfg_.injection.enabled) {  // 单粒子注入
             const InjectionConfig& inj = cfg_.injection;
-            if (inj.pos_mode == 1) {
-                pos = Vec3(inj.x, inj.y, inj.z);
-            } else {
-                double lon = inj.lon_deg * M_PI / 180.0;
-                double lat = inj.lat_deg * M_PI / 180.0;
-                pos = Vec3(inj.r * std::cos(lat) * std::cos(lon),
-                           inj.r * std::cos(lat) * std::sin(lon),
-                           inj.r * std::sin(lat));
-            }
-            if (inj.vel_mode == 1) {          // (vx,vy,vz) 直接给定
-                Vec3 vv(inj.vx_kms, inj.vy_kms, inj.vz_kms);
-                double n = vv.norm();
-                base_dir = (n > 1e-12) ? vv * (1.0 / n) : Vec3(0, 0, 1);
-                v_override = ((n > 1e-12) ? n : 0.0) / 6371.0;
-            } else {                          // (v, pitch, phase) 相对局部 B
-                Vec3 B(0, 0, 0);
-                if (field_) field_->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
-                double bm = B.norm();
-                Vec3 bh = (bm > 1e-12) ? B * (1.0 / bm) : Vec3(0, 0, 1);
-                Vec3 ref(0, 0, 1);
-                if (std::abs(bh.dot(ref)) > 0.99) ref = Vec3(1, 0, 0);
-                Vec3 e1 = bh.cross(ref);
-                double n1 = e1.norm();
-                e1 = (n1 > 1e-12) ? e1 * (1.0 / n1) : Vec3(1, 0, 0);
-                Vec3 e2 = bh.cross(e1);
-                double a = inj.pitch_deg * M_PI / 180.0;
-                double ph = inj.phase_deg * M_PI / 180.0;
-                base_dir = bh * std::cos(a) +
-                           (e1 * std::cos(ph) + e2 * std::sin(ph)) * std::sin(a);
-                v_override = inj.v_kms / 6371.0;
-            }
+            pos = injection_position(inj);
+            Vec3 B(0, 0, 0);
+            if (inj.vel_mode != 1 && field_)
+                field_->sample(pos.x, pos.y, pos.z, B.x, B.y, B.z);
+            bool has_b = false;
+            double speed_kms = 0.0;
+            base_dir = injection_velocity(inj, B, has_b, speed_kms);
+            v_override = speed_kms / 6371.0;
             deterministic = true;
         } else {  // 定向盘面
             double lon = cfg_.lon_deg * M_PI / 180.0;

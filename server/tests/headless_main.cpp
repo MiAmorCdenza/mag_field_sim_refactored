@@ -319,6 +319,39 @@ int main() {
         p5.resize(1);
         em3.spawn(p5, 0, 5);
         CHECK(std::abs(p5.vz[0]) < 1e-12, "无 B 表时退化参考轴(z 轴)不崩溃");
+
+        // L2 预览一致性:预览用的 injection_velocity 必须与发射器实际生成
+        // 逐位一致(两处共用同一函数;若有人各写一套,此断言立即失败)
+        {
+            EmitterConfig pc = ec;
+            pc.injection.vel_mode = 0;
+            pc.injection.pitch_deg = 37.5;
+            pc.injection.phase_deg = 20.0;
+            pc.injection.pos_mode = 1;                   // (x,y,z)
+            pc.injection.x = 3.0; pc.injection.y = -2.0; pc.injection.z = 1.5;
+            Emitter emp(pc);
+            emp.set_field(&uni);
+            Particles pv;
+            pv.resize(1);
+            emp.spawn(pv, 0, 6);
+
+            Vec3 pos = injection_position(pc.injection);
+            Vec3 b(0, 0, 0);
+            uni.sample(pos.x, pos.y, pos.z, b.x, b.y, b.z);
+            bool has_b = false;
+            double speed = 0.0;
+            Vec3 dir = injection_velocity(pc.injection, b, has_b, speed);
+            // 与生成路径同样的结合律:(v/6371)*v_mult 后再乘方向分量
+            const double final_v = (speed / 6371.0) * pc.types.front().v_mult;
+            CHECK(pos.x == pv.x[0] && pos.y == pv.y[0] && pos.z == pv.z[0],
+                  "预览位置 == 生成位置(逐位)");
+            CHECK(dir.x * final_v == pv.vx[0] &&
+                      dir.y * final_v == pv.vy[0] &&
+                      dir.z * final_v == pv.vz[0],
+                  "预览速度 == 生成速度(逐位)");
+            CHECK(has_b && B_NT_PER_CODE == 31200.0,
+                  "预览 B 单位常数与烘焙缩放一致(31200 nT/表单位)");
+        }
     }
 
     std::printf(failures ? "\n[%d 项失败]\n" : "\n全部通过 ✅\n", failures);

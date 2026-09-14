@@ -129,8 +129,85 @@ void SimPipeline::step_frame() {
         in.enable_gravity = op.step.enable_gravity;
         in.gravity_mult = op.step.gravity_mult;
         in.substep_cap = op.step.substep_cap;
-        for (int s = 0; s < op.step.substeps; ++s) adv->step(particles, in);
+        for (int s = 0; s < op.step.substeps; ++s) {
+            adv->step(particles, in);
+            sim_time_ += op.step.dt;   // 名义推进(内核内部细分不减总时长)
+        }
     }
+}
+
+// L2 单粒子初条件预览:与发射器生成路径共用 injection_position /
+// injection_velocity(同一套数学,不会预览/实际漂移)。
+SourcePreview SimPipeline::source_preview() const {
+    SourcePreview sp;
+    if (!has_injection_) return sp;
+    const InjectionConfig& inj = emitter.injection();
+    sp.pos_mode = inj.pos_mode;
+    sp.vel_mode = inj.vel_mode;
+    sp.pos = injection_position(inj);
+    sp.pitch_deg = inj.pitch_deg;
+    sp.phase_deg = inj.phase_deg;
+
+    // 物种:与生成路径一致取链首(确定性,不参与加权随机)
+    static const ParticleType kFallback{};
+    const ParticleType* pt = nullptr;
+    if (!species_types_.empty()) pt = &species_types_.front();
+    else if (!emitter.types().empty()) pt = &emitter.types().front();
+    if (!pt) pt = &kFallback;
+    sp.q_over_m = (pt->mass > 1e-12) ? std::abs(pt->q / pt->mass) : 1.0;
+
+    // 局部 B(表内为归一化单位;越界钳制 → 显式提示"点在表域外")
+    Vec3 b(0, 0, 0);
+    bool outside = false;
+    if (inj.vel_mode != 1 && b_table.has_data()) {
+        b_table.sample(sp.pos.x, sp.pos.y, sp.pos.z, b.x, b.y, b.z);
+        const double eps = 1e-9;
+        outside = sp.pos.x < b_table.xs.front() - eps || sp.pos.x > b_table.xs.back() + eps ||
+                  sp.pos.y < b_table.ys.front() - eps || sp.pos.y > b_table.ys.back() + eps ||
+                  sp.pos.z < b_table.zs.front() - eps || sp.pos.z > b_table.zs.back() + eps;
+    }
+    bool has_b = false;
+    sp.v_dir = injection_velocity(inj, b, has_b, sp.v_kms);
+    sp.has_b = has_b;
+
+    // 生成路径的两处钳制(emitters.h spawn):预览必须反映实际生效值,
+    // 否则读数与屏幕上真实出现的粒子不符。
+    const double c_speed = 299792.458 / 6371.0;
+    if (sp.v_kms / 6371.0 >= c_speed) {
+        sp.v_kms = c_speed * 0.999999 * 6371.0;
+        sp.note = "速率 ≥ c:已钳制到 0.999999c";
+    }
+    double rn = sp.pos.norm();
+    if (rn < 1.05) {
+        sp.pos = (rn > 1e-6) ? sp.pos * (1.05 / rn) : Vec3(1.05, 0, 0);
+        if (!sp.note.empty()) sp.note += ";";
+        sp.note += "注入点 < 1.05 Re:发射器抬升至 1.05 Re";
+    }
+
+    double bm = b.norm();
+    if (bm > 1e-12) sp.b_dir = b * (1.0 / bm);
+    sp.b_nt = bm * B_NT_PER_CODE;
+
+    // 回旋半径/周期:直接用积分器常数(q_prime = |q/m|·2988.5959 每表单位)
+    const double wc = sp.q_over_m * Q_PRIME_PER_B * bm;   // rad/s
+    if (wc > 1e-12) {
+        double v_re_s = sp.v_kms / 6371.0;               // Re/s
+        sp.r_g_re = v_re_s / wc;
+        sp.gyro_s = 2.0 * M_PI / wc;
+    }
+    if (sp.note.empty()) {                               // 无钳制时才写常规提示
+        if (inj.vel_mode == 1) {
+            sp.note = "vxyz:方向直接给定(不依赖 B)";
+        } else if (!b_table.has_data()) {
+            sp.note = "B 表未烘焙:方向回退 z 轴";
+        } else if (outside) {
+            sp.note = "注入点在 B 表域外(采样被钳制)";
+        } else if (!has_b) {
+            sp.note = "局部 B≈0:方向回退 z 轴";
+        }
+    }
+    sp.valid = true;
+    return sp;
 }
 
 void SimPipeline::encode(std::vector<uint8_t>& out) const {

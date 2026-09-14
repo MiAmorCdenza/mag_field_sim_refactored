@@ -20,6 +20,28 @@ struct PipelineConfig {
     IntegratorConfig integrator;
 };
 
+// L2 单粒子初条件预览(服务器算,含需要场表的局部 B)。
+// 位置/方向为 GSM;标量按积分器自身单位换算(非独立 SI 估算):
+//   B_nT   = |B_code| · 31200                 (nodes/efield.py 同一常数)
+//   ω_c    = |q/m| · 2988.5959 · |B_code|     (boris.h q_prime 同一常数)
+//   R_g    = (v_kms/6371) / ω_c   [Re]
+//   回旋周期 = 2π / ω_c            [s]
+struct SourcePreview {
+    bool valid = false;
+    bool has_b = false;          // 局部 B 可用(否则速度方向回退 z 轴)
+    Vec3 pos;                    // GSM / Re
+    Vec3 b_dir;                  // b̂(表单位方向,仅方向有意义)
+    Vec3 v_dir;                  // 速度方向单位矢量(GSM)
+    double b_nt = 0.0;           // |B| (nT)
+    double v_kms = 0.0;          // 速率 (km/s)
+    double r_g_re = 0.0;         // 回旋半径 (Re)
+    double gyro_s = 0.0;         // 回旋周期 (s)
+    double pitch_deg = 0.0, phase_deg = 0.0;
+    double q_over_m = 1.0;       // 物种 q/m(归一化)
+    int pos_mode = 0, vel_mode = 0;
+    std::string note;            // 诊断文本(表外/B≈0 等)
+};
+
 class SimPipeline {
 public:
     Table3D b_table, e_table, drag_table;
@@ -40,6 +62,14 @@ public:
     int plan_particle_count() const { return plan_count_; }
     bool has_injection() const { return has_injection_; }
 
+    // 单粒子初条件预览(无注入节点 / 无 B 表 → valid=false)
+    SourcePreview source_preview() const;
+
+    // 仿真时间(名义步进累积:每子步加 op.step.dt)。
+    // 只在换图(reset_sim_time)归零:调参重编译计划不重置,便于观察连续演化。
+    double sim_time() const { return sim_time_; }
+    void reset_sim_time() { sim_time_ = 0.0; }
+
     // 按槽位名安装烘焙结果(B/E/drag/gravity)
     bool install_baked(const BakedField& f, std::string& err);
 
@@ -56,4 +86,5 @@ private:
     int32_t next_id_ = 0;
     std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
     int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
+    double sim_time_ = 0.0;                    // 仿真时间累积(s)
 };

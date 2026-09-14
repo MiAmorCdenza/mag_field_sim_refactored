@@ -23,6 +23,30 @@ window.editor = (function () {
     }
     const canvas = new LGraphCanvas(canvasEl, graph);
     canvas.background_image = "";
+    // 左下角统计覆盖层:LiteGraph 默认显示 graph.globaltime/iteration/fps,
+    // 这些属于它自己的执行循环(本项目不跑 runStep → 恒为 0,易误判"卡死")。
+    // 改为显示真实仿真状态:仿真时间 / 计划粒子数 / 帧率 + 图结构。
+    canvas.renderInfo = function (ctx) {
+        const s = window.simStats || {};
+        const plan = s.plan || {};
+        ctx.save();
+        ctx.font = "11px Consolas, monospace";
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#8fa";
+        ctx.fillText(`t = ${(s.t || 0).toFixed(2)} s`, 10, canvasEl.height - 72);
+        ctx.fillText(`n = ${s.n | 0}`, 10, canvasEl.height - 59);
+        ctx.fillStyle = "#9ab";
+        ctx.fillText(`${(s.fps || 0).toFixed(1)} fps`, 10, canvasEl.height - 46);
+        ctx.fillStyle = "#889";
+        let y = canvasEl.height - 33;
+        ctx.fillText(`N ${graph._nodes.length}  E ${Object.keys(graph.links || {}).length}`, 10, y);
+        if (plan.count) {
+            ctx.fillStyle = plan.slow_path ? "#fc6" : "#8fa";
+            ctx.fillText(`计划粒子 ${plan.count}${plan.slow_path ? " (slow_path)" : ""}`,
+                         10, canvasEl.height - 20);
+        }
+        ctx.restore();
+    };
     window.addEventListener("resize", () => {
         canvasEl.width = canvasEl.clientWidth;
         canvasEl.height = canvasEl.clientHeight;
@@ -41,7 +65,10 @@ window.editor = (function () {
             // v0.4 LiteGraph 创建实例时不会调用基类构造器,必须显式初始化:
             // 否则 this.flags/inputs/outputs/properties 均为 undefined,
             // 绘制循环读 node.flags.collapsed 每帧抛错、节点永不渲染。
-            LGraphNode.call(this, title || "");
+            // 标题必须在这里给定:LGraphNode 构造器对空标题回退为字符串
+            // "Unnamed",而 registerNodeType 只写类级 T.title(画布读的是
+            // 实例 this.title)→ 之前所有节点都显示 "Unnamed"。
+            LGraphNode.call(this, title || spec.name || spec.type);
             this.properties = {};
             // any 端口必须用 LiteGraph 通配类型 "*"(空串亦可):
             // v0.4 的 isValidConnection 对非空类型严格相等,若 any 用颜色
@@ -96,11 +123,16 @@ window.editor = (function () {
                 if (k.startsWith("in:")) inputDefaults[k.slice(3)] = v;
                 else params[k] = v;
             }
-            nodes.push({
+            const entry = {
                 id: jsonId, type: n.properties.spec_type,
                 params, input_defaults: inputDefaults,
                 pos: [Math.round(n.pos[0]), Math.round(n.pos[1])],
-            });
+            };
+            // 实例级标题只在用户改过时导出(否则载入时按插件名派生)
+            if (n.title && n._spec && n.title !== n._spec.name) {
+                entry.title = n.title;
+            }
+            nodes.push(entry);
         }
         const edges = [];
         // v0.4 的 graph.links 是对象(按链接 id 键控),用 Object.values 迭代
@@ -134,6 +166,8 @@ window.editor = (function () {
                 props.json_id = nd.id;  // 保留原图 id,导出时沿用(输出槽引用稳定)
                 node.properties = props;
                 node.pos = nd.pos || [0, 0];
+                // 标题:JSON 显式 title 优先,否则用插件名(默认图/预设都不带 title)
+                node.title = nd.title || (node._spec && node._spec.name) || nd.type;
                 graph.add(node);
                 idToNode[nd.id] = node;
             }
@@ -277,8 +311,9 @@ window.editor = (function () {
                 v => {
                     node.properties[k] = v;
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
-                    // 单粒子注入:参数变化即时刷新 3D 预览(L1 本地计算)
-                    previewInjection(node);
+                    // 单粒子注入:参数变化即时刷新 3D 预览(L1 本地估算,
+                    // 服务器 L2 预览随后到达并按含 B 的结果细化)
+                    previewInjection(node, true);
                     // 粒子物种:预设下拉 → 立即回填其它字段
                     // (与引擎 on_param 同表;面板重建后停止本循环)
                     if (spec.type === "particle_species" && k === "preset" &&
@@ -288,6 +323,18 @@ window.editor = (function () {
                         return;
                     }
                 }));
+        }
+
+        // ---- 单粒子注入:初条件读数(局部 B / 回旋半径 / 回旋周期) ----
+        // 数值来自服务器 L2 预览(与积分器同一套常数),拖滑杆时实时刷新。
+        if (spec.type === "particle_injection") {
+            const box = document.createElement("div");
+            box.className = "hint";
+            box.id = "inj-readout";
+            box.style.whiteSpace = "pre-wrap";
+            box.textContent = "初条件读数:等待服务器预览…";
+            body.appendChild(box);
+            renderInjectionReadout(window.simStats && window.simStats.src);
         }
 
         // ---- 渲染节点:内联代码编辑器 + 参数下发 ----
@@ -325,13 +372,47 @@ window.editor = (function () {
                 r * Math.sin(lat)];
     }
 
-    function previewInjection(node) {
+    // 单粒子初条件读数面板(与 3D 预览同源:服务器 L2 预览消息)
+    function renderInjectionReadout(src) {
+        const box = document.getElementById("inj-readout");
+        if (!box) return;
+        if (!src || typeof src.b_nt !== "number") {
+            box.textContent = "初条件读数:等待服务器预览…";
+            return;
+        }
+        const f = (v, d) => (typeof v === "number" && isFinite(v) ? v.toFixed(d) : "—");
+        const pitch = src.pitch;
+        let trap;
+        if (src.vel_mode === 1) trap = "vxyz 模式:方向直接给定";
+        else if (pitch >= 60 && pitch <= 120) trap = "磁镜捕获(沿场线反弹)";
+        else if (pitch <= 20 || pitch >= 160) trap = "近沿场线:损失锥方向(会沉降)";
+        else trap = "捕获,镜点纬度中等";
+        const rg_km = src.r_g_re * 6371;
+        const lines = [
+            `B = ${f(src.b_nt, 1)} nT${src.has_b ? "" : "(无局部 B,方向回退 z 轴)"}`,
+            `v = ${f(src.vmag, 1)} km/s   pitch = ${f(pitch, 1)}°   相位 = ${f(src.phase, 1)}°`,
+            `R_g = ${src.r_g_re.toExponential(2)} Re = ${f(rg_km, 1)} km`,
+            `回旋周期 = ${f(src.gyro_s, 3)} s   (${trap})`,
+        ];
+        if (src.r_g_re > 0 && src.r_g_re < 0.05) {
+            lines.push("提示:R_g ≪ 场景尺度 → 螺旋不可见。" +
+                       "在偶极子后加 mul 节点缩放 B(w=0.01 → R_g ×100)即可看见回旋。");
+        }
+        if (src.note) lines.push("⚠ " + src.note);
+        box.textContent = lines.join("\n");
+    }
+
+    // local=true:拖参数时的即时本地估算(r=位置立刻动;服务器 ~250ms 后细化)
+    // local=false(默认):选中/载图 → 重放服务器 L2 预览(含局部 B 与 b̂)
+    function previewInjection(node, local) {
         if (!window.renderHost || !window.renderHost.dispatch) return;
         const spec = node && node._spec;
         if (!spec || spec.type !== "particle_injection") {
             window.renderHost.dispatch("source_preview", null);
             return;
         }
+        if (!local && window.protocol && window.protocol.replaySourcePreview &&
+            window.protocol.replaySourcePreview()) return;
         const p = node.properties || {};
         const g = injectionPosGSM(p);
         let dir = null;
@@ -589,5 +670,13 @@ registerRenderItem({
     document.getElementById("btn-reset").onclick = () => window.protocol.resetToServer();
     document.getElementById("btn-respawn").onclick = () => window.protocol.respawn();
 
-    return { initRegistry, loadGraph, exportGraph, canvas, graph };
+    // 服务器 L2 预览到达(protocol.js 调用):若正在看注入节点,刷新读数面板
+    function onSourcePreview(src) {
+        if (selectedNode && selectedNode._spec &&
+            selectedNode._spec.type === "particle_injection") {
+            renderInjectionReadout(src);
+        }
+    }
+
+    return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview };
 })();

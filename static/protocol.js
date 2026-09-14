@@ -10,6 +10,26 @@ window.protocol = (function () {
     let serverParticleCount = 0;   // 服务器全局粒子数(图内覆盖失效时恢复)
     const debounceTimers = {};
 
+    // 实时统计(LiteGraph 自带覆盖层显示的是它自己的执行循环时间,本项目
+    // 不跑 graph.runStep → 恒为 0;这里统计真实帧流供 HUD 使用。
+    const simStats = { t: 0, n: 0, fps: 0, frames: 0, plan: null, src: null };
+    window.simStats = simStats;
+    let statWindowStart = performance.now();
+    let statWindowFrames = 0;
+
+    function noteFrame(header) {
+        simStats.frames++;
+        statWindowFrames++;
+        if (header && typeof header.n === "number") simStats.n = header.n;
+        if (header && typeof header.t === "number") simStats.t = header.t;
+        const now = performance.now();
+        if (now - statWindowStart >= 500) {
+            simStats.fps = statWindowFrames * 1000 / (now - statWindowStart);
+            statWindowStart = now;
+            statWindowFrames = 0;
+        }
+    }
+
     function wsSend(obj) {
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
     }
@@ -106,6 +126,7 @@ window.protocol = (function () {
                     // 几何帧 = "geometry:" + header.kind(field_lines/efield_lines/…)
                     const kind = header.type === "s" ? "particles"
                         : "geometry:" + (header.kind || header.type || "unknown");
+                    if (header.type === "s") noteFrame(header);
                     window.renderHost && window.renderHost.dispatch(kind, e.data, header);
                 } catch (err) {
                     window.uiLog && window.uiLog("error", "frame_parse", String(err));
@@ -151,6 +172,7 @@ window.protocol = (function () {
             window.editor.initRegistry(m.types);
             window.toast("🔌 插件热更新:节点面板已刷新");
         } else if (m.type === "plan_status") {
+            simStats.plan = m;
             if (m.slow_path) window.toast("⚠ 粒子计划含未知算子:慢路径(slow_path)");
             // 图内粒子数覆盖(发射器 count / 单粒子注入):同步界面徽标
             if (typeof m.count === "number") {
@@ -160,6 +182,25 @@ window.protocol = (function () {
                     setParticles(serverParticleCount);
                 }
             }
+        } else if (m.type === "source_preview") {
+            // L2 服务器预览:GSM → 渲染坐标在此统一重映射(与帧协议一致),
+            // 渲染项只认场景坐标;物理量原样透传给属性面板读数。
+            simStats.src = m;
+            const g2s = (v) => (v ? [v[0], v[2], -v[1]] : null);
+            const payload = {
+                pos: g2s(m.pos),
+                dir: (m.vel_mode === 1 || m.has_b) ? g2s(m.dir) : null,
+                bdir: m.has_b ? g2s(m.bdir) : null,
+                vmag: m.vmag,
+                b_nt: m.b_nt,
+                r_g_re: m.r_g_re,
+                gyro_s: m.gyro_s,
+                note: m.note || "",
+            };
+            window.renderHost && window.renderHost.dispatch("source_preview", payload);
+            simStats.srcPayload = payload;   // 重选节点时重放(见 replaySourcePreview)
+            window.editor && window.editor.onSourcePreview &&
+                window.editor.onSourcePreview(m);
         }
     }
 
@@ -191,11 +232,18 @@ window.protocol = (function () {
     function respawn() { wsSend({ type: "respawn" }); }
     function resetToServer() { if (serverGraph) window.editor.loadGraph(serverGraph); }
 
+    // 重放最后一次服务器预览(重选注入节点时用:服务器不会为"选中"再发一次)
+    function replaySourcePreview() {
+        if (!simStats.srcPayload) return false;
+        window.renderHost && window.renderHost.dispatch("source_preview", simStats.srcPayload);
+        return true;
+    }
+
     document.getElementById("ptc-input").addEventListener("change", (e) => {
         const n = Math.max(1, parseInt(e.target.value) || 100);
         wsSend({ type: "set_particle_count", value: n });
     });
 
     boot();
-    return { uploadGraph, sendParam, respawn, resetToServer };
+    return { uploadGraph, sendParam, respawn, resetToServer, replaySourcePreview };
 })();
