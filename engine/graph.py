@@ -424,6 +424,57 @@ class Graph:
     # 物种来源节点:单品便捷节点 + 种群行表节点(#30)
     _SPECIES_NODE_TYPES = ("particle_species", "particle_population")
 
+    # Tsyganenko 家族(以及磁尾/IMF 源)= **只有外部场**(GEOPACK 约定);
+    # 内部场(偶极/IGRF)必须自己加。实测(kp=2,赤道面)r=1.5 Re 处 T89 外部场
+    # 仅 34 nT,而偶极子 9244 nT —— 漏掉内部场会让内磁层场强低约 100 倍。
+    _EXTERNAL_ONLY_MODELS = ("t89", "t96", "t01", "t04", "ts05", "ta16",
+                             "tail", "imf_source")
+    _INTERNAL_FIELD_MODELS = ("dipole", "igrf")
+
+    def _field_chain_types(self, nid, seen=None):
+        """从 nid 向上游收集全部节点类型(数据依赖图,含所有输入端口)。"""
+        seen = seen if seen is not None else set()
+        if nid in seen:
+            return seen
+        seen.add(nid)
+        node = self.nodes.get(nid)
+        if node is None:
+            return seen
+        for (dst, _port), (src, _sport) in self.inputs_map.items():
+            if dst == nid:
+                self._field_chain_types(src, seen)
+        return seen
+
+    def field_diagnostics(self):
+        """槽位级物理诊断:只有外部场模型、却没有内部场 → 结构化告警。
+
+        这类错误**不会报错**,只会让内区场强低 ~100 倍(画布看着正常、
+        物理全错),所以必须自己抓出来。
+        (内部场算"有"的情形:链上有 dipole/igrf;或磁层顶节点的 dipole 输入
+         接了它 —— 后者在上游遍历里天然可见,因为 dipole 输入也是一条数据边)
+        """
+        warnings = []
+        slots = {}
+        for nid, node in self.nodes.items():
+            if node.spec().get("type") == "output_slot":
+                slots.setdefault(node.params.get("slot", "unnamed"), nid)
+        for name, (sid, _sport) in self.outputs.items():
+            slots.setdefault(name, sid)
+        for slot, nid in sorted(slots.items()):
+            chain = self._field_chain_types(nid)
+            types = {self.nodes[n].spec().get("type") for n in chain
+                     if n in self.nodes}
+            ext = sorted(types & set(self._EXTERNAL_ONLY_MODELS))
+            if ext and not (types & set(self._INTERNAL_FIELD_MODELS)):
+                warnings.append({
+                    "code": "external_only_field", "node": nid, "port": slot,
+                    "msg": f"槽位 {slot} 的场只用了外部模型({'/'.join(ext)}),"
+                           f"没有内部场(偶极子/IGRF):内磁层场强会低约 100 倍。"
+                           f"请加「倾斜偶极子」节点并用「加法」合成"
+                           f"(或经磁层顶模型的 dipole 输入)",
+                })
+        return warnings
+
     @staticmethod
     def _rows_of(node):
         """节点 → 物种记录列表(particle_population 取行表;species 取自身)。"""
@@ -634,6 +685,8 @@ class Graph:
                 "msg": "图中没有发射器节点:沿用服务器默认发射器与全局粒子数",
             })
         # 注入 + count>1 的退化组合由 C++ 侧判定(需要计划参数聚合结果)
+        # 槽位级物理诊断:只有外部场模型(如 T89)却没有内部场 → 结构化告警
+        warnings.extend(self.field_diagnostics())
         return {"ops": ops, "slow_path": slow, "count": len(ops),
                 "warnings": warnings}
 

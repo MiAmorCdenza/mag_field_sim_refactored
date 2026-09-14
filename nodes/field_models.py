@@ -46,12 +46,18 @@ def _external_vectorize(fn):
 
 @register_node(
     type="t89",
-    name="T89 (1989)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="T89 (1989) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},
 )
 class T89Node(Node):
+    """T89 = **外部场**模型(GEOPACK 约定),不含内部偶极/IGRF。
+
+    总场 = 本节点 + 内部场(`偶极子` 节点,或 `磁层顶` 节点的 dipole 输入)。
+    实测(kp=2,赤道面):r=1.5 Re 时 T89 外部场只有 34 nT,而偶极子 9244 nT
+    —— 只接 T89 会让内磁层场强低 ~100 倍(图上传时会告警 external_only_field)。
+    """
     def compute(self, kp, ps):
         import geopack.t89 as _t89
         X, Y, Z = self.lattice.mesh()
@@ -85,7 +91,7 @@ def _safe(fn):
 
 @register_node(
     type="t96",
-    name="T96 (1996)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="T96 (1996) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},
@@ -102,7 +108,7 @@ class T96Node(Node):
 
 @register_node(
     type="t01",
-    name="T01 (2001)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="T01 (2001) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},
@@ -128,7 +134,7 @@ class T01Node(Node):
 
 @register_node(
     type="t04",
-    name="T04 (2004)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="T04 (2004) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},
@@ -152,7 +158,7 @@ class T04Node(Node):
 
 @register_node(
     type="ts05",
-    name="TS05 (2005 · 暴时)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="TS05 (2005 · 暴时) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},
@@ -182,7 +188,7 @@ class TS05Node(Node):
 
 @register_node(
     type="ta16",
-    name="TA16 RBF (2016)", category="磁场/外部模型", icon="🌐", cost="expensive",
+    name="TA16 RBF (2016) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
             "ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},

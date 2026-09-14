@@ -767,6 +767,52 @@ def test_respawn_op():
     print("✓ respawn=false → 计划不含 respawn 算子(一次性播撒)")
 
 
+def test_external_only_field_diagnostic():
+    """T89/T96/… 是**纯外部场**模型(GEOPACK 约定):只接外部模型、没有内部场
+    → external_only_field 告警(内磁层场强会低约 100 倍,不报错但物理全错)。"""
+    import json
+    from engine.registry import default_registry
+    reg = default_registry()
+
+    def load(nodes, edges):
+        g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+        g.load_json({"version": 1, "nodes": nodes, "edges": edges,
+                     "outputs": {}})
+        return [w["code"] for w in g.particle_plan()["warnings"]]
+
+    ob = {"id": "ob", "type": "output_slot", "params": {"slot": "B"}}
+    t89 = {"id": "t89", "type": "t89"}
+    dip = {"id": "dip", "type": "dipole"}
+    add = {"id": "sum", "type": "add"}
+
+    codes = load([t89, ob], [{"from": ["t89", "field"], "to": ["ob", "field"]}])
+    assert "external_only_field" in codes, codes
+    print("✓ 只用 T89 → external_only_field 告警")
+
+    codes = load([t89, dip, add, ob], [
+        {"from": ["t89", "field"], "to": ["sum", "a"]},
+        {"from": ["dip", "field"], "to": ["sum", "b"]},
+        {"from": ["sum", "field"], "to": ["ob", "field"]}])
+    assert "external_only_field" not in codes, codes
+    print("✓ T89 + 偶极子(加法)→ 无告警")
+
+    # 经磁层顶模型的 dipole 输入也算(默认图/复合场预设想走的就是这条)
+    nodes = [{"id": "t89b", "type": "t89"}, dip,
+             {"id": "ib", "type": "internal_blend"},
+             {"id": "mp", "type": "magnetopause"}, ob]
+    codes = load(nodes, [
+        {"from": ["t89b", "field"], "to": ["ib", "base"]},
+        {"from": ["dip", "field"], "to": ["mp", "dipole"]},
+        {"from": ["ib", "field"], "to": ["mp", "internal"]},
+        {"from": ["mp", "field"], "to": ["ob", "field"]}])
+    assert "external_only_field" not in codes, codes
+    print("✓ T89 经磁层顶模型 + dipole 输入 → 无告警(上游遍历可见)")
+
+    codes = load([dip, ob], [{"from": ["dip", "field"], "to": ["ob", "field"]}])
+    assert "external_only_field" not in codes, codes
+    print("✓ 纯偶极子 → 无告警")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -786,4 +832,6 @@ if __name__ == "__main__":
     test_plan_warnings()
     test_population_table()
     test_render_channel_contract()
+    test_respawn_op()
+    test_external_only_field_diagnostic()
     print("\n全部冒烟测试通过 ✅")

@@ -2,58 +2,396 @@
  "preset": {
   "id": "t89_single",
   "name": "T89 磁层 · 单粒子",
-  "desc": "T89 外部场(kp=2)经 mul(w=0.01) 标度后驱动单粒子:回旋半径 ×100 可见螺旋,同时保留真实磁层场线拓扑。",
+  "desc": "T89 外部场 + 倾斜偶极子(内部场)合成总场,再经 mul(w=0.01) 标度:回旋半径 ×100 可见螺旋,同时保留真实磁层场线拓扑。",
   "sort": 20
  },
  "version": 1,
- "lattice": {"preset": "tiny"},
+ "lattice": {
+  "preset": "tiny"
+ },
  "nodes": [
-  {"id": "kp", "type": "kp_source", "params": {"kp": 2.0}, "pos": [40, 60]},
-  {"id": "day", "type": "day_source", "params": {"day": 172.0}, "pos": [40, 170]},
-  {"id": "t89", "type": "t89", "input_defaults": {"kp": 2.0, "ps": 0.5}, "pos": [240, 60]},
-  {"id": "scaler", "type": "mul", "input_defaults": {"w": 0.01}, "pos": [440, 60]},
-  {"id": "ob", "type": "output_slot", "params": {"slot": "B"}, "pos": [640, 60]},
-  {"id": "inj", "type": "particle_injection",
-   "params": {"order": 25, "pos_mode": "rll", "r": 6.6, "lat": 0.0, "lon": 0.0,
-              "vel_mode": "vpitch", "v": 400.0, "pitch": 70.0, "phase": 0.0},
-   "pos": [640, 260]},
-  {"id": "pop", "type": "particle_population",
-   "params": {"order": 20, "rows": [
-     {"preset": "proton", "name": "质子", "q": 1.0, "mass": 1.0,
-      "v_mult": 1.0, "weight": 1.0, "color": "#ff5555", "enabled": true}]},
-   "pos": [640, 400]},
-  {"id": "pe", "type": "particle_emitter",
-   "params": {"order": 10, "count": 1, "max_range": 15.0}, "pos": [880, 300]},
-  {"id": "bi", "type": "boris_integrator",
-   "params": {"order": 30, "dt": 0.01, "substeps": 50, "max_range": 15.0,
-              "substep_cap": 60},
-   "pos": [1100, 300]},
-  {"id": "enc", "type": "output_encoder", "params": {"order": 40}, "pos": [1300, 300]},
-  {"id": "rp", "type": "render_pipeline_start", "params": {"fps_cap": 60}, "pos": [880, 60]},
-  {"id": "rfl", "type": "render_item_field_lines",
-   "params": {"layer": 1, "color_mode": "bmag", "opacity": 0.75}, "pos": [1100, 60]},
-  {"id": "rpt", "type": "render_item_particles",
-   "params": {"layer": 2, "size": 0.12}, "pos": [1300, 60]},
-  {"id": "rtrl", "type": "render_item_particle_trails",
-   "params": {"layer": 2, "trail_length": 300}, "pos": [1500, 60]},
-  {"id": "rsp", "type": "render_item_source_preview",
-   "params": {"layer": 3, "marker_size": 1.2}, "pos": [1500, 220]},
-  {"id": "rpc", "type": "render_item_pitch_cone",
-   "params": {"layer": 3, "radius": 2.0, "rings": 4, "opacity": 0.4}, "pos": [1500, 380]}
+  {
+   "id": "kp",
+   "type": "kp_source",
+   "params": {
+    "kp": 2.0
+   },
+   "pos": [
+    40,
+    60
+   ]
+  },
+  {
+   "id": "day",
+   "type": "day_source",
+   "params": {
+    "day": 172.0
+   },
+   "pos": [
+    40,
+    170
+   ]
+  },
+  {
+   "id": "t89",
+   "type": "t89",
+   "input_defaults": {
+    "kp": 2.0,
+    "ps": 0.5
+   },
+   "pos": [
+    240,
+    60
+   ]
+  },
+  {
+   "id": "scaler",
+   "type": "mul",
+   "input_defaults": {
+    "w": 0.01
+   },
+   "pos": [
+    440,
+    60
+   ]
+  },
+  {
+   "id": "ob",
+   "type": "output_slot",
+   "params": {
+    "slot": "B"
+   },
+   "pos": [
+    640,
+    60
+   ]
+  },
+  {
+   "id": "inj",
+   "type": "particle_injection",
+   "params": {
+    "order": 25,
+    "pos_mode": "rll",
+    "r": 6.6,
+    "lat": 0.0,
+    "lon": 0.0,
+    "vel_mode": "vpitch",
+    "v": 400.0,
+    "pitch": 70.0,
+    "phase": 0.0
+   },
+   "pos": [
+    640,
+    260
+   ]
+  },
+  {
+   "id": "pop",
+   "type": "particle_population",
+   "params": {
+    "order": 20,
+    "rows": [
+     {
+      "preset": "proton",
+      "name": "质子",
+      "q": 1.0,
+      "mass": 1.0,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#ff5555",
+      "enabled": true
+     }
+    ]
+   },
+   "pos": [
+    640,
+    400
+   ]
+  },
+  {
+   "id": "pe",
+   "type": "particle_emitter",
+   "params": {
+    "order": 10,
+    "count": 1,
+    "max_range": 15.0
+   },
+   "pos": [
+    880,
+    300
+   ]
+  },
+  {
+   "id": "bi",
+   "type": "boris_integrator",
+   "params": {
+    "order": 30,
+    "dt": 0.01,
+    "substeps": 50,
+    "max_range": 15.0,
+    "substep_cap": 60
+   },
+   "pos": [
+    1100,
+    300
+   ]
+  },
+  {
+   "id": "enc",
+   "type": "output_encoder",
+   "params": {
+    "order": 40
+   },
+   "pos": [
+    1300,
+    300
+   ]
+  },
+  {
+   "id": "rp",
+   "type": "render_pipeline_start",
+   "params": {
+    "fps_cap": 60
+   },
+   "pos": [
+    880,
+    60
+   ]
+  },
+  {
+   "id": "rfl",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1,
+    "color_mode": "bmag",
+    "opacity": 0.75
+   },
+   "pos": [
+    1100,
+    60
+   ]
+  },
+  {
+   "id": "rpt",
+   "type": "render_item_particles",
+   "params": {
+    "layer": 2,
+    "size": 0.12
+   },
+   "pos": [
+    1300,
+    60
+   ]
+  },
+  {
+   "id": "rtrl",
+   "type": "render_item_particle_trails",
+   "params": {
+    "layer": 2,
+    "trail_length": 300
+   },
+   "pos": [
+    1500,
+    60
+   ]
+  },
+  {
+   "id": "rsp",
+   "type": "render_item_source_preview",
+   "params": {
+    "layer": 3,
+    "marker_size": 1.2
+   },
+   "pos": [
+    1500,
+    220
+   ]
+  },
+  {
+   "id": "rpc",
+   "type": "render_item_pitch_cone",
+   "params": {
+    "layer": 3,
+    "radius": 2.0,
+    "rings": 4,
+    "opacity": 0.4
+   },
+   "pos": [
+    1500,
+    380
+   ]
+  },
+  {
+   "id": "dip",
+   "type": "dipole",
+   "input_defaults": {
+    "ps": 0.5
+   },
+   "pos": [
+    300,
+    180
+   ]
+  },
+  {
+   "id": "sum",
+   "type": "add",
+   "pos": [
+    420,
+    120
+   ]
+  }
  ],
  "edges": [
-  {"from": ["kp", "kp"], "to": ["t89", "kp"]},
-  {"from": ["day", "ps"], "to": ["t89", "ps"]},
-  {"from": ["t89", "field"], "to": ["scaler", "a"]},
-  {"from": ["scaler", "field"], "to": ["ob", "field"]},
-  {"from": ["ob", "out"], "to": ["bi", "b"]},
-  {"from": ["ob", "out"], "to": ["rfl", "data"]},
-  {"from": ["inj", "spec"], "to": ["pe", "init"]},
-  {"from": ["inj", "spec"], "to": ["rsp", "data"]},
-  {"from": ["inj", "spec"], "to": ["rpc", "data"]},
-  {"from": ["pop", "types"], "to": ["pe", "types"]},
-  {"from": ["enc", "particles"], "to": ["rpt", "data"]},
-  {"from": ["enc", "particles"], "to": ["rtrl", "data"]}
+  {
+   "from": [
+    "kp",
+    "kp"
+   ],
+   "to": [
+    "t89",
+    "kp"
+   ]
+  },
+  {
+   "from": [
+    "day",
+    "ps"
+   ],
+   "to": [
+    "t89",
+    "ps"
+   ]
+  },
+  {
+   "from": [
+    "scaler",
+    "field"
+   ],
+   "to": [
+    "ob",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "bi",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "rfl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "pe",
+    "init"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "rsp",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "rpc",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "pop",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "t89",
+    "field"
+   ],
+   "to": [
+    "sum",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "dip",
+    "field"
+   ],
+   "to": [
+    "sum",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "sum",
+    "field"
+   ],
+   "to": [
+    "scaler",
+    "a"
+   ]
+  },
+  {
+   "from": [
+    "day",
+    "ps"
+   ],
+   "to": [
+    "dip",
+    "ps"
+   ]
+  }
  ],
  "outputs": {}
 }
