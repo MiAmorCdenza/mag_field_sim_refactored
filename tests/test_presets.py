@@ -68,8 +68,22 @@ def main():
         assert "emitter" in kinds and "step" in kinds and "encode" in kinds, kinds
         slots = [o["slots"]["b"] for o in plan["ops"] if o["kind"] == "step"]
         assert slots and all(slots), f"{c['id']} 预设的步进算子缺 B 槽位: {slots}"
+
+        # 真的烘焙一遍:参数默认值/节点实现的问题只有算一遍才会暴露
+        # (实测踩过:imf 节点直接索引 self.params["parker_custom"] → KeyError →
+        #  服务器 bake_progress 报 error,而只编译计划是看不出来的)
+        import numpy as np
+        import time
+        t0 = time.perf_counter()
+        baked = g.evaluate(sorted(doc.get("outputs") or {}) or ["B"])
+        dt = time.perf_counter() - t0
+        for slot, fld in baked.items():
+            arr = np.asarray(fld.data, dtype=float)
+            assert np.all(np.isfinite(arr)), f"{c['id']} 槽位 {slot} 含非有限值"
+            assert float(np.max(np.abs(arr))) > 0.0, f"{c['id']} 槽位 {slot} 全零"
         print(f"✓ {c['id']:16s} 节点 {len(doc['nodes']):2d} 边 {len(doc['edges']):2d} "
-              f"算子 {'→'.join(kinds)} 渲染项 {len(binds)} 零告警")
+              f"算子 {'→'.join(kinds)} 渲染项 {len(binds)} 零告警 "
+              f"烘焙 {dt:.1f}s({','.join(baked)})")
 
     print("预设完整性测试全部通过 ✅")
 

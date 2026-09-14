@@ -693,3 +693,23 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     - 新增 `tests/test_presets.py`:跟着发现列表走 —— 卡片字段齐全、必须有
       custom 入口、每个预设的图能加载、**非 custom 预设零告警**(计划/绑定/
       slow_path/B 槽位),即"出厂预设不许带病"
+34. **三个演示预设 + 预设健壮性修复**(用户:Van Allen 用现成球面随机发生器即可,
+   不必新增播种节点)。新增 `preset_t89_single` / `preset_composite_multi` /
+    `preset_van_allen`(各带 .md 指南与 meta 卡片),实测烘焙/帧数:
+    - `t89_single`(16 节点/12 边,烘焙 5.5 s):T89(kp=2)→ `mul(w=0.01)` 缩放场
+      → 单粒子;**回旋半径 0.005 Re → 0.5 Re** 可见螺旋,substeps=50;
+      配俯仰角锥插件读初条件
+    - `composite_multi`(17 节点/19 边,烘焙 5.6 s):T89 + tail(harris)+ 倾斜偶极
+      + IMF 经 `magnetopause(mp_model=2)` 合成;种群表 电子/质子/α 权重 2:2:1
+      (实测前 400 个粒子 128/116/56);emitter mode=1 球面 r=8 撒 3000
+    - `van_allen`(10 节点/6 边,烘焙 0.1 s):偶极 + **球面随机发生器**
+      (mode=1, r=4.5 Re, 4000 粒子)→ 赤道附近俯仰角≈90° 磁镜捕获成带;
+      拖尾关闭保帧率。实测画面为蓝红球壳带
+    - **发现并修掉一个真 bug**:`Node` 实例参数**不合并规格默认值**,而节点代码
+      普遍是 `self.params["x"]` 直接索引 → 手写图只写关心的字段就 KeyError
+      (`imf_source` 的 `parker_custom`)。这类图**服务器 bake 报 error**,而
+      只编译计划看不出来。修法:`Graph.add_node` 构造后按规格 `setdefault` 补齐
+      (仅填缺失);`tests/test_presets.py` 增加"**必须真的烘焙一遍**"检查
+      —— 就是它漏掉的那一步
+    - 运维提醒:引擎 Python 模块只在**服务器启动时**导入(`nodes/*.py` 才热扫),
+      改 `engine/*.py` 后必须重启服务器(本轮踩到:测试用新引擎通过、服务器仍报旧错)

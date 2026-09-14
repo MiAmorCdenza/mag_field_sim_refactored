@@ -123,6 +123,11 @@ class Graph:
             raise GraphError(f"未知节点类型: {node_type}")
         node = cls(node_id, params)
         node.graph = self
+        # 参数默认值合并(#34):节点代码里普遍是 self.params["x"] 直接取用,
+        # 手写图 JSON 只给出关心的字段(如 imf 只写 polarity)→ 缺键会 KeyError。
+        # 规格默认值本就是声明的一部分,这里统一补齐(仅填缺失,不覆盖)。
+        for k, p in node.spec().get("params", {}).items():
+            node.params.setdefault(k, p.default)
         if input_defaults:
             node.input_defaults = dict(input_defaults)
         self.nodes[node_id] = node

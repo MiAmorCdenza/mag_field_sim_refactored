@@ -57,7 +57,7 @@ window.protocol = (function () {
         if (nw) bits.push(`⚠ 计划告警 ${nw} 条(见画布红框节点)`);
         const pop = s.population;
         if (pop && pop.count > 0) {
-            bits.push(`种群 ${pop.count} 种${pop.count > 1 ? "(图级声明)" : ""}`);
+            bits.push(`种群 ${pop.count} 种`);   // 归属由接线决定(#30)
         }
         el.innerHTML = bits.map((b, i) =>
             `<span class="${i === 0 ? "" : "dim"}">${b}</span>`).join("\n");
