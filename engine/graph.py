@@ -372,16 +372,18 @@ class Graph:
     def render_bindings(self):
         """渲染域绑定表(声明节点 → 数据契约)。
 
-        返回 [{node_id, type, params, inputs: {端口: [上游节点, 上游端口]},
-               slot: 数据源解析出的槽位名或 None}]
-        供服务器编译数据通道:对绑定场运行对应数据源(追踪/采样/编码),
-        产出帧,通道名 = 渲染节点 id。
+        返回 [{node_id, type, params, inputs, slot, channels, has_data}]
+        - `slot`:数据源解析出的槽位名(场类)或 None
+        - `channels`:该渲染项声明的订阅通道(#32)
+        - `has_data`:data 端口是否接线 —— **接线决定订阅**:未接线则不订阅、
+          不渲染,并由服务器告警(以前是写死订阅,拔线也照收帧)
         槽位名在此**一次性解析**(与 particle_plan 同一规则),服务器不再
-        各自维护一份反查表;解析不出 = 该渲染项拿不到数据(调用方应告警)。
+        各自维护反查表。
         """
         out = []
         for nid, node in self.nodes.items():
-            if node.spec().get("domain") != "render":
+            spec = node.spec()
+            if spec.get("domain") != "render":
                 continue
             ins = {}
             for (dst, dport), (src, sport) in self.inputs_map.items():
@@ -392,10 +394,13 @@ class Graph:
                 slot = self._slot_of(ins["data"][0])
             out.append({
                 "node_id": nid,
-                "type": node.spec()["type"],
+                "type": spec["type"],
                 "params": dict(node.params),
                 "inputs": ins,
                 "slot": slot,
+                "channels": list(spec.get("channels") or []),
+                "has_data": "data" in ins,
+                "needs_data": "data" in spec.get("inputs", {}),
             })
         return out
 

@@ -116,8 +116,7 @@ std::string default_graph_json() {
     {"id": "rfl", "type": "render_item_field_lines", "params": {"layer": 1}},
     {"id": "rel", "type": "render_item_efield_lines", "params": {"layer": 1}},
     {"id": "rpt", "type": "render_item_particles", "params": {"layer": 2}},
-    {"id": "rtrl", "type": "render_item_particle_trails", "params": {"layer": 2}},
-    {"id": "rsp", "type": "render_item_source_preview", "params": {"layer": 3}}
+    {"id": "rtrl", "type": "render_item_particle_trails", "params": {"layer": 2}}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -144,7 +143,9 @@ std::string default_graph_json() {
     {"from": ["oe", "out"], "to": ["bi", "e"]},
     {"from": ["od", "out"], "to": ["bi", "drag"]},
     {"from": ["ob", "out"], "to": ["rfl", "data"]},
-    {"from": ["oe", "out"], "to": ["rel", "data"]}
+    {"from": ["oe", "out"], "to": ["rel", "data"]},
+    {"from": ["enc", "particles"], "to": ["rpt", "data"]},
+    {"from": ["enc", "particles"], "to": ["rtrl", "data"]}
   ],
   "outputs": {}
 })JSON";
@@ -855,17 +856,35 @@ struct ServerApp::Impl {
                             }
                         }
                         if (ok) {
-                            // 渲染绑定诊断:场线类渲染项若解析不出槽位 → 永远
-                            // 不会产出几何帧(静默空屏)。在图上传统一时就算出来,
-                            // 随 plan_status 广播给前端。
+                            // 渲染绑定诊断:①场线类渲染项解析不出槽位 → 永远
+                            // 不会产出几何帧;②声明了订阅通道却没接 data →
+                            // 不订阅、不渲染(#32 接线决定订阅)。两者都是
+                            // "画布看着对、实际没数据"的静默失败。
                             json rwarn = json::array();
                             try {
                                 auto binds = json::parse(rb_json);
                                 for (const auto& b : binds) {
                                     std::string t = b.value("type", "");
+                                    std::string nid = b.value("node_id", "");
+                                    const bool needs = b.value("needs_data", false);
+                                    const bool has = b.value("has_data", false);
+                                    int nch = 0;
+                                    if (b.contains("channels") && b["channels"].is_array())
+                                        nch = (int)b["channels"].size();
+                                    if (needs && !has) {
+                                        std::string what =
+                                            (nch > 0) ? b["channels"][0].get<std::string>()
+                                                      : std::string("数据");
+                                        rwarn.push_back({
+                                            {"code", "render_item_unwired"},
+                                            {"node", nid},
+                                            {"msg", "渲染项 " + nid + " 没有接数据源:"
+                                             "不订阅「" + what + "」通道,不会显示"
+                                             "(接线决定订阅)"}});
+                                        continue;
+                                    }
                                     if (t != "render_item_field_lines" &&
                                         t != "render_item_efield_lines") continue;
-                                    std::string nid = b.value("node_id", "");
                                     // 注意:slot 可能是 JSON null → value(...) 会抛
                                     // type_error(曾整段被 catch 吞掉,告警静默丢失)
                                     std::string slot;

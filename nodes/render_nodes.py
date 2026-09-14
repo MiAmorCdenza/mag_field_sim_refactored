@@ -62,8 +62,10 @@ class RenderPipelineStartNode(RenderNodeBase):
     type="render_item_field_lines",
     name="磁力线渲染项", category="渲染", icon="🧲", domain="render",
     inputs={"data": Port("vector_field", default=None,
-                         desc="场槽位(必需:无数据边则不产出几何帧)")},
+                         desc="场槽位(必需:#32 接线决定订阅,无数据边则不产出几何帧)")},
     outputs={},
+    # 订阅通道(#32):data 端口的类型决定通道;未接线 = 不订阅(不渲染 + 告警)
+    channels=["geometry:field_lines"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={
@@ -92,8 +94,9 @@ class RenderItemFieldLinesNode(RenderNodeBase):
     type="render_item_efield_lines",
     name="电场线渲染项", category="渲染", icon="⚡", domain="render",
     inputs={"data": Port("vector_field", default=None,
-                         desc="场槽位(必需:无数据边则不产出几何帧)")},
+                         desc="场槽位(必需:#32 接线决定订阅,无数据边则不产出几何帧)")},
     outputs={},
+    channels=["geometry:efield_lines"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={
@@ -119,8 +122,10 @@ class RenderItemEFieldLinesNode(RenderNodeBase):
     type="render_item_particles",
     name="粒子渲染项", category="渲染", icon="●", domain="render",
     inputs={"data": Port("particle_buffer", default=None,
-                         desc="可留空:粒子帧走 WS 推送通道,与连线无关")},
+                         desc="粒子流(必需:接「输出编码器.particles」;"
+                              "未接线 = 不渲染 + 告警)")},
     outputs={},
+    channels=["particles"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={
@@ -132,15 +137,17 @@ class RenderItemEFieldLinesNode(RenderNodeBase):
     version=1,
 )
 class RenderItemParticlesNode(RenderNodeBase):
-    """粒子渲染:订阅粒子帧(21B/粒子二进制)。"""
+    """粒子渲染:订阅粒子帧(21B/粒子二进制),数据从编码器的 particles 端口拉。"""
 
 
 @register_node(
     type="render_item_particle_trails",
     name="粒子拖尾渲染项", category="渲染", icon="彡", domain="render",
     inputs={"data": Port("particle_buffer", default=None,
-                         desc="可留空:拖尾由客户端从已收粒子帧派生")},
+                         desc="粒子流(必需:接「输出编码器.particles」;"
+                              "拖尾由客户端从该帧流派生)")},
     outputs={},
+    channels=["particles"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={
@@ -161,8 +168,11 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
 @register_node(
     type="render_item_source_preview",
     name="初条件预览渲染项", category="渲染", icon="◈", domain="render",
-    inputs={},
+    inputs={"data": Port("source_spec", default=None,
+                         desc="注入规格(必需:接「单粒子注入.spec」;"
+                              "未接线 = 不显示预览)")},
     outputs={},
+    channels=["source_preview"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={
@@ -187,6 +197,7 @@ class RenderItemSourcePreviewNode(RenderNodeBase):
     inputs={"data": Port("scalar_field", default=None,
                          desc="标量场(待实现:当前无 JS 渲染项)")},
     outputs={},
+    channels=["geometry:diagnostics"],
     # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
     companions=[{"type": "render_pipeline_start"}],
     params={

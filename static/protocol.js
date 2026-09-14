@@ -255,6 +255,8 @@ window.protocol = (function () {
                 b_nt: m.b_nt,
                 r_g_re: m.r_g_re,
                 gyro_s: m.gyro_s,
+                pitch: m.pitch,        // 俯仰角(度):插件可据此画角锥
+                phase: m.phase,
                 note: m.note || "",
             };
             window.renderHost && window.renderHost.dispatch("source_preview", payload);

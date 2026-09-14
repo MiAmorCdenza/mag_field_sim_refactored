@@ -188,8 +188,16 @@ window.editor = (function () {
                         params[k] = pspec.default;
                     }
                 }
+                // 接线决定订阅(#32):data 未接线 → 订阅空数组(不渲染)
+                const spec = node._spec;
+                let channels = [];
+                if (!("data" in spec.inputs)) {
+                    channels = undefined;   // 无数据端口 → 用渲染项自带订阅
+                } else if (node.inputs.some(i => i.name === "data" && i.link != null)) {
+                    channels = (spec.channels || []).slice();
+                }
                 window.renderRegistry && window.renderRegistry.instantiate(
-                    jsonId, templateId, params);
+                    jsonId, templateId, params, channels);
             }
             // 清理图中已不存在的渲染项实例
             if (window.renderHost) {

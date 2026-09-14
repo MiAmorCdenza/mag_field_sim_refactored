@@ -26,7 +26,10 @@ window.renderRegistry = (function () {
     }
 
     // 图内渲染节点 → 渲染项实例(节点 id 唯一)
-    function instantiate(nodeId, templateId, params) {
+    // channels(#32):由编辑器按**接线**解析出的订阅通道数组;
+    //   - 传了数组(可为空)→ 覆盖渲染项自带 subscribes(接线决定订阅)
+    //   - 传 undefined → 用渲染项 JS 里的 subscribes(旧行为/无接线信息)
+    function instantiate(nodeId, templateId, params, channels) {
         const tpl = templates.get(templateId);
         if (!tpl) {
             // 没有对应实现(如 render_item_diagnostics 尚未实现):
@@ -46,6 +49,10 @@ window.renderRegistry = (function () {
         inst.id = nodeId;
         inst._template = templateId;
         inst._params = params || {};
+        if (Array.isArray(channels)) {
+            inst.subscribes = channels.slice();
+            inst._channelsFromWiring = true;
+        }
         instances.set(nodeId, inst);
         window.renderHost.registerItem(inst);
         window.renderHost.applyParams(nodeId, inst._params);

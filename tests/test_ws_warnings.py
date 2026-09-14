@@ -117,12 +117,27 @@ async def main():
         assert frames == 0, f"无编码器节点时不应发送粒子帧(实测 {frames} 帧)"
         print("✓ 删编码器节点 → no_encoder 告警 + 5 秒 0 粒子帧(节点真生效)")
 
-        # 3) 删场线渲染项 data 线 → render_no_slot
+        # 3) 拔场线渲染项的 data 线 → render_item_unwired(接线决定订阅)
         d = copy.deepcopy(preset)
         d["edges"] = [e for e in d["edges"]
                       if not (e["to"][0] == "rfl" and e["to"][1] == "data")]
+        codes = await upload_expect(ws, d, "render_item_unwired")
+        print("✓ 拔场线 data 线 → render_item_unwired 告警(不订阅,视口无场线)")
+
+        # 3b) data 接了「没有声明输出槽位」的节点(场节点本身)→ render_no_slot
+        d = copy.deepcopy(preset)
+        d["edges"] = [e for e in d["edges"]
+                      if not (e["to"][0] == "rfl" and e["to"][1] == "data")]
+        d["edges"].append({"from": ["dip", "field"], "to": ["rfl", "data"]})
         codes = await upload_expect(ws, d, "render_no_slot")
-        print("✓ 删场线 data 线 → render_no_slot 告警(视口无场线的真因)")
+        print("✓ 场线 data 直连场节点(未过输出槽)→ render_no_slot 告警")
+
+        # 3c) 拔粒子流 data 线 → render_item_unwired(#32)
+        d = copy.deepcopy(preset)
+        d["edges"] = [e for e in d["edges"]
+                      if not (e["to"][0] == "rpt" and e["to"][1] == "data")]
+        codes = await upload_expect(ws, d, "render_item_unwired")
+        print("✓ 拔粒子流 data 线 → render_item_unwired 告警(该渲染项不订阅)")
 
         # 4) 恢复基线 → 告警清空
         codes = await upload_expect(ws, preset, None)

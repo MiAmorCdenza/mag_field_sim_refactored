@@ -103,6 +103,19 @@
     "marker_size": 1.2,
     "layer": 3
    }
+  },
+  {
+   "id": "rpc",
+   "type": "render_item_pitch_cone",
+   "params": {
+    "layer": 3,
+    "radius": 1.6,
+    "rings": 3
+   },
+   "pos": [
+    1180,
+    760
+   ]
   }
  ],
  "edges": [
@@ -153,6 +166,46 @@
    ],
    "to": [
     "rfl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "rsp",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "rpc",
     "data"
    ]
   }

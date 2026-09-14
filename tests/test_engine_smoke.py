@@ -684,6 +684,59 @@ def test_population_table():
     print("✓ particle_species = 1 行种群(与种群节点同端口类型,可互换)")
 
 
+def test_render_channel_contract():
+    """#32 渲染数据通道契约:生产者端口类型 ↔ 消费者 channels 一致;
+    接线决定订阅(未接线 = 不订阅)。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    types = {t["type"]: t for t in reg.describe()}
+
+    # (a) 生产者声明的输出端口类型
+    assert types["output_encoder"]["outputs"].get("particles") == "particle_buffer"
+    assert types["particle_injection"]["outputs"].get("spec") == "source_spec"
+    assert types["output_slot"]["outputs"].get("out") == "any"
+
+    # (b) 每个带 channels 的渲染项必须有 data 端口,且类型 → 通道可对应
+    chan_of_type = {
+        "particle_buffer": "particles",
+        "source_spec": "source_preview",
+    }
+    for t, spec in types.items():
+        if not spec.get("channels"):
+            continue
+        assert "data" in spec["inputs"], (t, "声明了 channels 但没有 data 端口")
+        dt = spec["inputs"]["data"]["ptype"]
+        chans = spec["channels"]
+        if dt in chan_of_type:
+            assert chans == [chan_of_type[dt]], (t, dt, chans)
+        else:   # 场类:通道名 = geometry:<kind>
+            assert all(c.startswith("geometry:") for c in chans), (t, chans)
+    print("✓ 通道契约:生产者端口类型与消费者 channels 一致")
+
+    # (c) render_bindings 暴露 channels / has_data / needs_data(服务器据此告警)
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+    g.load_json({"version": 1, "nodes": [
+        {"id": "enc", "type": "output_encoder"},
+        {"id": "rpt", "type": "render_item_particles"},
+        {"id": "rfl", "type": "render_item_field_lines"},
+    ], "edges": [], "outputs": {}})
+    binds = {b["type"]: b for b in g.render_bindings()}
+    assert binds["render_item_particles"]["channels"] == ["particles"]
+    assert binds["render_item_particles"]["needs_data"] is True
+    assert binds["render_item_particles"]["has_data"] is False   # 未接线
+    print("✓ 绑定表带 channels/needs_data/has_data(未接线可被服务器告警)")
+
+    # (d) 接上编码器 → has_data=True
+    g.load_json({"version": 1, "nodes": [
+        {"id": "enc", "type": "output_encoder"},
+        {"id": "rpt", "type": "render_item_particles"},
+    ], "edges": [{"from": ["enc", "particles"], "to": ["rpt", "data"]}],
+        "outputs": {}})
+    b = {x["type"]: x for x in g.render_bindings()}["render_item_particles"]
+    assert b["has_data"] is True and b["channels"] == ["particles"]
+    print("✓ 接线后 has_data=True(接线决定订阅)")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -702,4 +755,5 @@ if __name__ == "__main__":
     test_explicit_order_and_legacy_edges()
     test_plan_warnings()
     test_population_table()
+    test_render_channel_contract()
     print("\n全部冒烟测试通过 ✅")

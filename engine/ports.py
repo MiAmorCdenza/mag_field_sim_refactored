@@ -13,7 +13,7 @@ STRUCT_TYPES = ("rows",)
 # 格点场
 FIELD_TYPES = ("vector_field", "scalar_field")
 # 粒子域流(阶段 2 接入)
-STREAM_TYPES = ("particle_buffer", "field_table", "geometry")
+STREAM_TYPES = ("particle_buffer", "field_table", "geometry", "source_spec")
 # 通用透传(输出节点等:接受/输出任意类型)
 ANY_TYPES = ("any",)
 

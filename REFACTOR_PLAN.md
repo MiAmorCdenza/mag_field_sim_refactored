@@ -653,3 +653,24 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     - 时序坑:服务器**重放早于编辑器就绪**(protocol.js 先连 WS)→ 首次加载
       虚影/物种标注/告警红框都不出现。修法:protocol 缓存进 `simStats`,
       editor 就绪时用缓存补齐一次(以后新增这类"事件型消息"都要照此办理)
+32. **渲染数据通道契约(#32,兑现"动态渲染插件"的原始意图)**。渲染链当年的
+    意图是"从粒子步进管线把标注数据拉到渲染管线",但数据路由从未走链:
+    服务器只认场线类的 `data`、前端帧路由按帧头写死、渲染项订阅写死在 JS、
+    编码器连输出端口都没有。现在把"拉数据"做成**类型化端口 + 通道声明**:
+    - 生产者输出端口:`输出槽.out` = `field_table`(场),**`输出编码器.particles`
+      = `particle_buffer`**(新),**`单粒子注入.spec` = `source_spec`**(改)
+    - 消费者:渲染项声明 `inputs={"data": Port(<类型>)}` + `channels=[...]`:
+      field_lines/efield_lines → `geometry:field_lines|efield_lines`;
+      particles/particle_trails → `particles`;
+      source_preview/pitch_cone → `source_preview`;diagnostics → `geometry:diagnostics`
+    - **接线决定订阅**:`data` 接了才订阅(`renderRegistry.instantiate` 的
+      channels 覆盖渲染项自带 subscribes);未接线 = 不渲染 + 服务器告警
+      `render_item_unwired`(绑定表带 `channels/needs_data/has_data`)
+    - 场线类另有 `render_no_slot`:接了没有输出槽位的节点 → 永不产出几何帧
+    - **插件作者契约**(丢文件即生效,无需重启):
+      Python 侧 `nodes/render_item_*.py`(domain="render" + data 端口 + channels)
+      + JS 侧 `static/renderer/items/*.js`(registerRenderItem)+ index.html 引入。
+      完整示例:`nodes/render_item_pitch_cone.py` + `items/pitch_cone.js`
+      (以 B̂ 为轴、俯仰角为半顶角画漏斗;已接进单粒子预设)
+    - 实测:预设各渲染项订阅 = 接线所得;拔 `enc→rpt.data` 后 `rpt → []`
+      (其它项不受影响);新增插件节点热扫即出现在 /api/nodes

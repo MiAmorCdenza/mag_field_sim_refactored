@@ -24,7 +24,7 @@ from engine import register_node, Node, Port, Param, GraphError
     type="particle_injection",
     name="单粒子注入", category="粒子/来源", icon="◈", domain="particle",
     inputs={},
-    outputs={"spec": "any"},
+    outputs={"spec": "source_spec"},
     params={
         "order": Param("int", default=25, min=0, max=999,
                        desc="执行序(升序;注入在发射器之后、步进之前)"),

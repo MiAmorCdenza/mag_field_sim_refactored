@@ -251,7 +251,8 @@ class VerletIntegratorNode(ParticleNodeBase):
     type="output_encoder",
     name="输出编码器", category="粒子/输出", icon="⇥", domain="particle",
     inputs={},
-    outputs={},
+    # 粒子流出口:#32 —— 渲染项从**这里手动拉**粒子数据(接线决定订阅)
+    outputs={"particles": "particle_buffer"},
     params={"order": Param("int", default=40, min=0, max=999,
                            desc="执行序(升序;编码通常最后)")},
     version=1,
@@ -259,6 +260,6 @@ class VerletIntegratorNode(ParticleNodeBase):
 class OutputEncoderNode(ParticleNodeBase):
     """粒子帧编码(21 字节/粒子二进制协议)。
 
-    注意:C++ 仿真循环**无条件**编码并广播粒子帧,编码器节点目前只占执行序
-    位置(REFACTOR_PLAN #27 记录的"仪式性节点"之一;待定:让它真生效或移除)。
+    `particles` 输出 = 粒子流通道:粒子渲染项 / 拖尾渲染项的 `data` 接到这里
+    才接收帧(不接 = 不渲染)。无编码器节点时服务器不发送粒子帧。
     """

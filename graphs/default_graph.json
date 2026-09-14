@@ -189,13 +189,6 @@
    }
   },
   {
-   "id": "rsp",
-   "type": "render_item_source_preview",
-   "params": {
-    "layer": 3
-   }
-  },
-  {
    "id": "pop",
    "type": "particle_population",
    "params": {
@@ -488,6 +481,26 @@
    "to": [
     "pe",
     "types"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
    ]
   }
  ],

@@ -117,6 +117,9 @@ class Registry:
                 # 配套节点(#31):放置本节点时,若图中没有这些节点则一并放置
                 # (可选 wire = [本节点端口, 配套节点端口] 的自动连线)
                 "companions": s.get("companions") or [],
+                # 订阅通道(#32):渲染项声明它消费的数据通道;未接线 = 不订阅
+                # (不渲染 + 告警)。插件作者照此声明即可被宿主路由到对应帧
+                "channels": s.get("channels") or [],
                 "inputs": {k: v.to_json() for k, v in s["inputs"].items()},
                 "outputs": dict(s["outputs"]),
                 "params": {k: v.to_json() for k, v in s["params"].items()},
