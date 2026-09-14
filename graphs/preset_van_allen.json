@@ -1,47 +1,280 @@
 {
  "preset": {
   "id": "van_allen",
-  "name": "Van Allen 辐射带",
-  "desc": "倾斜偶极子 + 球面随机发生器:r=4.5 Re 球壳上撒 4000 个电子/质子,向内初速在赤道附近形成磁镜捕获的辐射带。",
+  "name": "Van Allen 辐射带(T89)",
+  "desc": "T89 完全体磁层场(kp=2)+ 体积随机播种:r≤4.5 Re 球体内撒 6000 个电子/质子/α,速率基准 c/3、大小与方向均 100% 随机 → 损失锥沉降,其余被磁镜捕获成带。",
   "sort": 40
  },
  "version": 1,
- "lattice": {"preset": "tiny"},
+ "lattice": {
+  "preset": "tiny"
+ },
  "nodes": [
-  {"id": "dip", "type": "dipole", "input_defaults": {"ps": 0.5}, "pos": [60, 80]},
-  {"id": "ob", "type": "output_slot", "params": {"slot": "B"}, "pos": [280, 80]},
-  {"id": "pop", "type": "particle_population",
-   "params": {"order": 20, "rows": [
-     {"preset": "electron", "name": "电子", "q": -1.0, "mass": 0.0005446623093681911,
-      "v_mult": 1.0, "weight": 1.0, "color": "#5599ff", "enabled": true},
-     {"preset": "proton", "name": "质子", "q": 1.0, "mass": 1.0,
-      "v_mult": 1.0, "weight": 1.0, "color": "#ff5555", "enabled": true}]},
-   "pos": [280, 300]},
-  {"id": "pe", "type": "particle_emitter",
-   "params": {"order": 10, "mode": 1, "v_base": 400.0, "v_random": 20.0,
-              "angle_random": 15.0, "dist_ratio": 1.0, "max_range": 4.5,
-              "count": 4000},
-   "pos": [520, 300]},
-  {"id": "bi", "type": "boris_integrator",
-   "params": {"order": 30, "dt": 0.01, "substeps": 10, "max_range": 15.0,
-              "substep_cap": 60},
-   "pos": [740, 300]},
-  {"id": "enc", "type": "output_encoder", "params": {"order": 40}, "pos": [940, 300]},
-  {"id": "rp", "type": "render_pipeline_start", "params": {"fps_cap": 60}, "pos": [520, 60]},
-  {"id": "rfl", "type": "render_item_field_lines",
-   "params": {"layer": 1, "color_mode": "bmag", "opacity": 0.45}, "pos": [740, 60]},
-  {"id": "rpt", "type": "render_item_particles",
-   "params": {"layer": 2, "size": 0.05}, "pos": [940, 60]},
-  {"id": "rtrl", "type": "render_item_particle_trails",
-   "params": {"layer": 2, "trail_length": 0}, "pos": [1140, 60]}
+  {
+   "id": "kp",
+   "type": "kp_source",
+   "params": {
+    "kp": 2.0
+   },
+   "pos": [
+    40,
+    60
+   ]
+  },
+  {
+   "id": "day",
+   "type": "day_source",
+   "params": {
+    "day": 172.0
+   },
+   "pos": [
+    40,
+    170
+   ]
+  },
+  {
+   "id": "t89",
+   "type": "t89",
+   "input_defaults": {
+    "kp": 2.0,
+    "ps": 0.5
+   },
+   "pos": [
+    240,
+    60
+   ]
+  },
+  {
+   "id": "ob",
+   "type": "output_slot",
+   "params": {
+    "slot": "B"
+   },
+   "pos": [
+    460,
+    60
+   ]
+  },
+  {
+   "id": "pop",
+   "type": "particle_population",
+   "params": {
+    "order": 20,
+    "rows": [
+     {
+      "preset": "electron",
+      "name": "电子",
+      "q": -1.0,
+      "mass": 0.0005446623093681911,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#5599ff",
+      "enabled": true
+     },
+     {
+      "preset": "proton",
+      "name": "质子",
+      "q": 1.0,
+      "mass": 1.0,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#ff5555",
+      "enabled": true
+     },
+     {
+      "preset": "alpha",
+      "name": "α粒子",
+      "q": 2.0,
+      "mass": 4.0,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#ffaa33",
+      "enabled": true
+     }
+    ]
+   },
+   "pos": [
+    280,
+    300
+   ]
+  },
+  {
+   "id": "pe",
+   "type": "particle_emitter",
+   "params": {
+    "order": 10,
+    "mode": 2,
+    "lon": 0.0,
+    "lat": 0.0,
+    "v_base": 100000.0,
+    "v_random": 100.0,
+    "angle_random": 100.0,
+    "dist_ratio": 0.01,
+    "spawn_radius_ratio": 1.0,
+    "max_range": 4.5,
+    "count": 6000
+   },
+   "pos": [
+    520,
+    300
+   ]
+  },
+  {
+   "id": "bi",
+   "type": "boris_integrator",
+   "params": {
+    "order": 30,
+    "dt": 0.01,
+    "substeps": 2,
+    "max_range": 15.0,
+    "substep_cap": 200
+   },
+   "pos": [
+    740,
+    300
+   ]
+  },
+  {
+   "id": "enc",
+   "type": "output_encoder",
+   "params": {
+    "order": 40
+   },
+   "pos": [
+    940,
+    300
+   ]
+  },
+  {
+   "id": "rp",
+   "type": "render_pipeline_start",
+   "params": {
+    "fps_cap": 60
+   },
+   "pos": [
+    520,
+    60
+   ]
+  },
+  {
+   "id": "rfl",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1,
+    "color_mode": "bmag",
+    "opacity": 0.45
+   },
+   "pos": [
+    740,
+    60
+   ]
+  },
+  {
+   "id": "rpt",
+   "type": "render_item_particles",
+   "params": {
+    "layer": 2,
+    "size": 0.05
+   },
+   "pos": [
+    940,
+    60
+   ]
+  },
+  {
+   "id": "rtrl",
+   "type": "render_item_particle_trails",
+   "params": {
+    "layer": 2,
+    "trail_length": 0
+   },
+   "pos": [
+    1140,
+    60
+   ]
+  }
  ],
  "edges": [
-  {"from": ["dip", "field"], "to": ["ob", "field"]},
-  {"from": ["ob", "out"], "to": ["bi", "b"]},
-  {"from": ["ob", "out"], "to": ["rfl", "data"]},
-  {"from": ["pop", "types"], "to": ["pe", "types"]},
-  {"from": ["enc", "particles"], "to": ["rpt", "data"]},
-  {"from": ["enc", "particles"], "to": ["rtrl", "data"]}
+  {
+   "from": [
+    "kp",
+    "kp"
+   ],
+   "to": [
+    "t89",
+    "kp"
+   ]
+  },
+  {
+   "from": [
+    "day",
+    "ps"
+   ],
+   "to": [
+    "t89",
+    "ps"
+   ]
+  },
+  {
+   "from": [
+    "t89",
+    "field"
+   ],
+   "to": [
+    "ob",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "bi",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "rfl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "pop",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
+   ]
+  }
  ],
  "outputs": {}
 }

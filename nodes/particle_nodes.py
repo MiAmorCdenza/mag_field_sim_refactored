@@ -36,7 +36,9 @@ _EMITTER_PARAMS = {
     "mode": Param("int", default=0, min=0, max=3),
     "lon": Param("scalar", default=0.0, min=-180.0, max=180.0),
     "lat": Param("scalar", default=0.0, min=-90.0, max=90.0),
-    "v_base": Param("scalar", default=400.0, min=50.0, max=2000.0),
+    # 速率量程放到 0.99c(冲击/辐射带场景需要相对论速率;积分器自身会在 c 处钳制)
+    "v_base": Param("scalar", default=400.0, min=50.0, max=300000.0,
+                    desc="基准速率 km/s(299792≈c;相对论速率由 Boris 自行处理)"),
     "v_random": Param("scalar", default=10.0, min=0.0, max=100.0),
     "angle_random": Param("scalar", default=5.0, min=0.0, max=100.0),
     "dist_ratio": Param("scalar", default=1.0, min=0.01, max=5.0),
