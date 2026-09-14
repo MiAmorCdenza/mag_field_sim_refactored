@@ -291,6 +291,13 @@ window.editor = (function () {
                 v => {
                     node.properties[k] = v;
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
+                    // 渲染域节点:参数(颜色/模式/不透明度…)即时下发到渲染宿主。
+                    // 之前在 onChange 里不推,只有"重新选中节点"时才推一次 →
+                    // 改 color_mode 看不到反应,必须等下一次几何帧
+                    if (spec.domain === "render" &&
+                        spec.type !== "render_pipeline_start") {
+                        pushRenderParams(node);
+                    }
                     // 单粒子注入:参数变化即时刷新 3D 预览(L1 本地估算,
                     // 服务器 L2 预览随后到达并按含 B 的结果细化)
                     previewInjection(node, true);

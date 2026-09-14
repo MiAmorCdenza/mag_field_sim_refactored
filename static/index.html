@@ -70,6 +70,17 @@
     }
     #sim-hud .dim { color: #8b949e; }
     #sim-hud .warn { color: #f0c674; }
+    /* 场线色标图例(渲染项按 color_mode 写入;相对视口右上角) */
+    #line-legend {
+        position: absolute; right: 8px; top: 8px; z-index: 5;
+        font: 10px/1.5 Consolas, monospace; color: #c9d1d9;
+        background: rgba(13,17,23,0.72); border: 1px solid #30363d;
+        border-radius: 4px; padding: 6px 8px; pointer-events: none;
+        white-space: pre; display: none;
+    }
+    #line-legend .bar { display: block; width: 120px; height: 8px; margin: 3px 0; }
+    #line-legend .row { display: flex; align-items: center; gap: 6px; }
+    #line-legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
     #props { flex: 1; overflow-y: auto; padding: 10px 12px; min-height: 120px; }
     #props .panel-title { font-weight: 700; color: var(--accent); margin-bottom: 8px; font-size: 0.8rem; }
     #props .hint { color: var(--dim); font-size: 0.75rem; }
@@ -125,7 +136,7 @@
         </div>
     </div>
     <div id="right">
-        <div id="viewport-wrap"><div id="viewport"></div><div id="sim-hud"></div></div>
+        <div id="viewport-wrap"><div id="viewport"></div><div id="sim-hud"></div><div id="line-legend"></div></div>
         <div id="props">
             <div class="panel-title">⚙ 节点属性<span id="props-node" style="float:right;color:var(--dim);"></span></div>
             <div id="props-body"><div class="hint">点击画布中的节点编辑其参数;双击空白处或点「添加节点」放入新节点。</div></div>

@@ -107,8 +107,30 @@ int main() {
         }
         CHECK(max_dr < 0.05, "r = L·sin²θ 解析关系(max|Δr| < 0.05)");
         CHECK(max_dphi < 0.02, "子午面守恒(φ≈0)");
-        std::printf("     max|Δr|=%.4f  max|Δφ|=%.4f  点数=%zu\n",
-                    max_dr, max_dphi, line.pts.size());
+        // 每点场强(几何帧 v2 的 |B| 着色数据源):尺寸对齐、与查表一致
+        CHECK(line.bmag.size() == line.pts.size(), "bmag 与点数对齐");
+        double mag_err = 0.0;
+        for (size_t i = 0; i < line.pts.size(); ++i) {
+            Vec3 b;
+            table.sample(line.pts[i].x, line.pts[i].y, line.pts[i].z, b.x, b.y, b.z);
+            mag_err = std::max(mag_err, std::abs((double)line.bmag[i] - b.norm()) /
+                                            (1.0 + b.norm()));
+        }
+        CHECK(mag_err < 1e-6, "bmag == 该点查表 |B|(逐点,float 容差)");
+        // 双向拼接后:两端都是足点(r≈1,强场),中段种子处最弱
+        size_t imin = 0;
+        for (size_t i = 1; i < line.bmag.size(); ++i)
+            if (line.bmag[i] < line.bmag[imin]) imin = i;
+        const double bmin = (double)line.bmag[imin];
+        const bool mid = imin > line.bmag.size() / 4 && imin < line.bmag.size() * 3 / 4;
+        CHECK(bmin < 0.1 * (double)line.bmag.front(),
+              "|B| 最弱在中段(种子 L=3 赤道,远离足点强场)");
+        CHECK(mid, "|B| 极小点位于线中段(双向拼接的种子附近)");
+        CHECK(std::abs((double)line.bmag.front() - (double)line.bmag.back()) < 0.05,
+              "两端足点 |B| 近似相等(南北对称)");
+        std::printf("     max|Δr|=%.4f  max|Δφ|=%.4f  点数=%zu  |B| 端/中:%.4g / %.4g(表单位)\n",
+                    max_dr, max_dphi, line.pts.size(),
+                    (double)line.bmag.front(), bmin);
     }
 
     std::printf("=== 2) 方位角守恒:种子 (0,4,0) → φ≈90° ===\n");

@@ -50,15 +50,32 @@ async def main():
                 header = json.loads(view[4:4 + hlen].decode("utf-8"))
                 if header.get("type") == "geom":
                     assert header["kind"] in ("field_lines", "efield_lines"), header
-                    # 逐线结构校验:u8 class u8 reason u16 n + 12n 字节
+                    # 逐线结构校验:u8 class u8 reason u16 n + n×stride 字节
+                    # v2(当前)= 16 B/点(x,y,z,|F|);v1 = 12 B/点(无场强)
+                    ver = header.get("v", 1)
+                    stride = 16 if ver >= 2 else 12
                     off = 4 + hlen
                     parsed = 0
+                    mags = []
                     for _ in range(header["count"]):
                         n = struct.unpack("<H", view[off + 2:off + 4])[0]
-                        off += 4 + n * 12
+                        if stride == 16:
+                            for k in range(n):
+                                mags.append(struct.unpack(
+                                    "<f", view[off + 4 + k * 16 + 12:off + 4 + k * 16 + 16])[0])
+                        off += 4 + n * stride
                         parsed += 1
                     assert parsed == header["count"] and off == len(frame)
-                    print(f"✓ 几何帧: kind={header['kind']} "
+                    if stride == 16:
+                        # |F| 逐点标量:必须有限、非负,且与 meta 的 smin/smax 自洽
+                        assert mags, "v2 帧应带每点场强"
+                        assert all(m == m and m >= 0.0 for m in mags), "|F| 应为有限非负"
+                        assert abs(min(mags) - header["smin"]) < 1e-3 * max(1.0, header["smin"])
+                        assert abs(max(mags) - header["smax"]) < 1e-3 * max(1.0, header["smax"])
+                        assert header["unit"] in ("nT", "归一化"), header
+                        print(f"   |F| 逐点: {min(mags):.3g} … {max(mags):.3g} {header['unit']}"
+                              f" ({len(mags)} 点,stride {stride} B)")
+                    print(f"✓ 几何帧 v{ver}: kind={header['kind']} "
                           f"node={header['node']} slot={header['slot']} "
                           f"线数={header['count']}")
                     got_geom = True

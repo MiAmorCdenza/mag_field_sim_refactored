@@ -530,3 +530,20 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     加密到 x56/y,z48(格距 ~1 Re)→ 偏差 ≤0.24 Re、|B| 误差 +2.5%,
     烘焙 30→56 ms。**`coarse`/`legacy` 粗轴是 legacy 位级一致的对照基准,
     冻结不改**(诊断点对照 max|Δ|=0.00e+00 依赖它)
+21. **几何帧 v2 = 每点带场强**(`build_geom_frame`):16 B/点
+    `(f32 x,y,z, f32 |F|)`,meta 带 `v/unit/smin/smax`;v1(12 B/点、无场强)
+    仍可解析(前端按 `meta.v` 选 stride)—— 协议加字段必须留旧版解析路径。
+    `|F|` 是**渲染单位**:B 表 ×31200 → nT,E 表原样(归一化)。
+    `FieldLine.bmag` 由 tracer 每点一次查表填入(相对每步 5 次 RK 采样可忽略),
+    双向拼接时与点数组同步合并,足点插值处一并修正
+22. **场线着色三模式**(`color_mode` = class / bmag / reason):class 是
+    **种子拓扑类别**(0 赤道闭合/1 极盖开放/2 上游太阳风,追踪时打标),
+    bmag 用 viridis+log 顶点色,reason 是终止原因(落地/出域/绕圈/点数上限/
+    场近零)。**不要以为颜色跟 |B| 相关**:偶极子里两者恰好单调同向(闭合线
+    在强场内区、开放线扫向弱场外围),换 T89/磁尾就解耦(开放线起点在极区
+    强场)。图例写在视口右上 `#line-legend`(渲染项直写 DOM)
+23. **渲染域参数必须"改即推"**:属性面板 onChange 里要显式
+    `pushRenderParams(node)` —— 之前只在 `renderProps`(选中/重建面板)时推,
+    改 color_mode 看不到任何反应,必须等下一次几何帧。另:线类渲染项的
+    `color` 默认必须是 `""`(空 = 用 color_mode),否则新建节点会被默认色
+    静默覆盖分类色;`pushRenderParams` 也不推空 color

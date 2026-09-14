@@ -42,6 +42,7 @@ enum class TermReason : uint8_t {
 
 struct FieldLine {
     std::vector<Vec3> pts;
+    std::vector<float> bmag;   // 每点的场强(表单位;B 表 ×31200 = nT)
     TermReason reason = TermReason::MaxPoints;
     double length = 0.0;
 };
@@ -50,6 +51,7 @@ struct FieldLine {
 inline TermReason trace_one(const Table3D& table, const Vec3& start, double dir,
                             const TraceConfig& cfg, FieldLine& out) {
     out.pts.clear();
+    out.bmag.clear();
     out.reason = TermReason::MaxPoints;
     out.length = 0.0;
 
@@ -60,6 +62,12 @@ inline TermReason trace_one(const Table3D& table, const Vec3& start, double dir,
         double bm = b.norm();
         if (bm < 1e-12) return Vec3(0, 0, 0);
         return b * (1.0 / bm);
+    };
+    // 每点场强(供前端按 |B| 着色):每点一次查表,相对 5 次 RK 采样可忽略
+    auto sample_mag = [&](const Vec3& p) -> float {
+        Vec3 b;
+        table.sample(p.x, p.y, p.z, b.x, b.y, b.z);
+        return (float)b.norm();
     };
 
     double ds = 0.5 * dir;
@@ -80,6 +88,7 @@ inline TermReason trace_one(const Table3D& table, const Vec3& start, double dir,
 
     for (int l = 0; l < cfg.max_points; ++l) {
         out.pts.push_back(x);
+        out.bmag.push_back(sample_mag(x));
         double r = x.norm();
         double ryz = x.y * x.y + x.z * x.z;
 
@@ -100,6 +109,7 @@ inline TermReason trace_one(const Table3D& table, const Vec3& start, double dir,
             double f = (cfg.r0 - r) / (rr - r);
             x = x - (x - xr) * f;
             out.pts.back() = x;
+            out.bmag.back() = sample_mag(x);   // 足点场强随位置一起修正
             out.reason = TermReason::HitEarth;
             break;
         }
@@ -173,8 +183,16 @@ inline void trace_line(const Table3D& table, const Vec3& seed,
     trace_one(table, seed, -1.0, cfg, fwd);  // 平行于 B
     trace_one(table, seed, +1.0, cfg, bwd);  // 反平行于 B
     out.pts.clear();
-    for (int i = (int)bwd.pts.size() - 1; i >= 1; --i) out.pts.push_back(bwd.pts[i]);
-    for (const auto& p : fwd.pts) out.pts.push_back(p);
+    out.bmag.clear();
+    for (int i = (int)bwd.pts.size() - 1; i >= 1; --i) {
+        out.pts.push_back(bwd.pts[i]);
+        if (i < (int)bwd.bmag.size()) out.bmag.push_back(bwd.bmag[i]);
+    }
+    for (size_t i = 0; i < fwd.pts.size(); ++i) {
+        out.pts.push_back(fwd.pts[i]);
+        if (i < fwd.bmag.size()) out.bmag.push_back(fwd.bmag[i]);
+    }
+    out.bmag.resize(out.pts.size(), 0.0f);   // 防御:尺寸对齐
     out.length = fwd.length + bwd.length;
     // 终止原因:任一方向先触发(足点 > 出界 > 环)
     out.reason = (bwd.reason == TermReason::HitEarth || fwd.reason == TermReason::HitEarth)

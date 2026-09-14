@@ -154,14 +154,31 @@ std::string default_graph_json() {
 // 几何帧序列化:[u32 meta_len][JSON meta][每线:u8 class u8 reason u16 n f32xyz×n]
 // 坐标重映射与粒子帧一致(Three.js 约定):(x, y, z) → (x, z, -y)
 // 即 GSM 极轴(z)→ 场景 Y(向上);不做此映射磁轴会横躺在场景 Z 上
+// 几何帧 v2(每点带场强,供前端按 |B| 着色):
+//   [u32 meta_len][JSON meta][每线: u8 class u8 reason u16 n (f32 x,y,z, f32 |F|)×n]
+// 坐标已重映射 GSM → Three (x,y,z)→(x,z,-y);|F| 为**渲染单位**
+// (B 表 ×31200 → nT;E 表原样 → 归一化单位,由 meta.unit 说明)。
+// v1(12 B/点,无场强)已不再产出,前端按 meta.v 兼容解析。
 std::string build_geom_frame(const std::string& kind, const std::string& node_id,
                              uint64_t seq, const std::string& slot,
-                             const std::vector<std::pair<int, FieldLine>>& lines) {
+                             const std::vector<std::pair<int, FieldLine>>& lines,
+                             double scalar_scale, const std::string& unit) {
+    double smin = 1e300, smax = -1e300;
+    for (const auto& [cls, line] : lines) {
+        for (float v : line.bmag) {
+            double s = (double)v * scalar_scale;
+            if (s < smin) smin = s;
+            if (s > smax) smax = s;
+        }
+    }
+    if (smin > smax) { smin = 0.0; smax = 1.0; }
     json meta{{"type", "geom"}, {"kind", kind}, {"seq", seq},
-              {"node", node_id}, {"slot", slot}, {"count", lines.size()}};
+              {"node", node_id}, {"slot", slot}, {"count", lines.size()},
+              {"v", 2}, {"unit", unit},
+              {"smin", smin}, {"smax", smax}};
     std::string ms = meta.dump();
     std::string out;
-    out.reserve(4 + ms.size() + lines.size() * 128);
+    out.reserve(4 + ms.size() + lines.size() * 256);
     uint32_t mlen = (uint32_t)ms.size();
     out.append((const char*)&mlen, 4);
     out.append(ms);
@@ -176,9 +193,12 @@ std::string build_geom_frame(const std::string& kind, const std::string& node_id
             float fx = (float)line.pts[i].x;
             float fy = (float)line.pts[i].z;
             float fz = -(float)line.pts[i].y;
+            float fv = (i < line.bmag.size()) ? (float)(line.bmag[i] * scalar_scale)
+                                              : 0.0f;
             out.append((const char*)&fx, 4);
             out.append((const char*)&fy, 4);
             out.append((const char*)&fz, 4);
+            out.append((const char*)&fv, 4);
         }
     }
     return out;
@@ -385,7 +405,11 @@ struct ServerApp::Impl {
 
             std::string kind =
                 type == "render_item_field_lines" ? "field_lines" : "efield_lines";
-            std::string frame = build_geom_frame(kind, nid, seq, slot, lines);
+            // B 表存的是归一化单位(÷31200),帧里换算回 nT;E 表原样(归一化)
+            double sscale = (kind == "field_lines") ? B_NT_PER_CODE : 1.0;
+            std::string sunit = (kind == "field_lines") ? "nT" : "归一化";
+            std::string frame = build_geom_frame(kind, nid, seq, slot, lines,
+                                                sscale, sunit);
             {
                 // 缓存:几何帧是烘焙事件驱动的一次性帧,新连接需补发
                 std::lock_guard<std::mutex> g(st.m);
