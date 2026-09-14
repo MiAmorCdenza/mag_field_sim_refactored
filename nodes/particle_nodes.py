@@ -27,7 +27,12 @@ class ParticleNodeBase(Node):
             f"不参与 Python 求值")
 
 
+_ORDER_PARAM = Param("int", default=100, min=0, max=999,
+                     desc="执行序(升序;缺省按类型:发射器10/物种20/注入25/步进30/编码40)")
+
 _EMITTER_PARAMS = {
+    "order": Param("int", default=10, min=0, max=999,
+                   desc="执行序(升序;越小越先)"),
     "mode": Param("int", default=0, min=0, max=3),
     "lon": Param("scalar", default=0.0, min=-180.0, max=180.0),
     "lat": Param("scalar", default=0.0, min=-90.0, max=90.0),
@@ -42,15 +47,16 @@ _EMITTER_PARAMS = {
                    desc="发射数量:0=沿用全局粒子数"),
 }
 
-# 积分器公共输入(prev=链序边;b/e/drag=场槽位数据边)
+# 积分器公共输入(仅数据边:场槽位;执行顺序由 order 参数决定)
 _INTEGRATOR_INPUTS = {
-    "prev": Port("any", default=None),
-    "b": Port("vector_field", default=None),
-    "e": Port("vector_field", default=None),
-    "drag": Port("scalar_field", default=None),
+    "b": Port("vector_field", default=None, desc="磁场槽位(必需:无 B 表则粒子直线飞行)"),
+    "e": Port("vector_field", default=None, desc="电场槽位(可选)"),
+    "drag": Port("scalar_field", default=None, desc="阻力系数槽位(可选)"),
 }
 
 _INTEGRATOR_PARAMS = {
+    "order": Param("int", default=30, min=0, max=999,
+                   desc="执行序(升序;多个步进算子按此顺序串联)"),
     "dt": Param("scalar", default=0.01, min=0.0001, max=1.0),
     "substeps": Param("int", default=5, min=1, max=50),
     "max_range": Param("scalar", default=90.0, min=5.0, max=200.0),
@@ -75,27 +81,31 @@ _SPECIES_PRESETS = {
 @register_node(
     type="particle_emitter",
     name="粒子发射器", category="粒子/来源", icon="⏺", domain="particle",
-    inputs={"types": Port("any", default=None),
-            "init": Port("any", default=None)},
-    outputs={"next": "any"},
+    inputs={"types": Port("any", default=None,
+                          desc="物种列表(留空亦可:物种是图级声明,见文档)"),
+            "init": Port("any", default=None,
+                         desc="单粒子注入规格(留空亦可:注入是图级生效)")},
+    outputs={},
     params=_EMITTER_PARAMS,
     version=1,
 )
 class ParticleEmitterNode(ParticleNodeBase):
     """粒子发射器:参数镜像 C++ EmitterConfig。
 
-    types 输入 = 物种链(链尾接进来);init 输入 = 单粒子注入节点
-    (接上即切确定性单粒子模式,mode 参数被注入接管)。
-    不连 = 图中全部物种节点 / 服务器默认三种类型。
+    执行序由 order 参数决定(默认 10,最先)。
+    types/init 两个入口是显式表达;实测语义见 REFACTOR_PLAN #22/#27:
+    物种与注入均按**图级声明**生效(留空不影响),接线只作可读性表达。
     """
 
 
 @register_node(
     type="particle_species",
     name="粒子物种", category="粒子/来源", icon="◉", domain="particle",
-    inputs={"prev": Port("any", default=None)},
-    outputs={"next": "any", "types": "any"},
+    inputs={},
+    outputs={"types": "any"},
     params={
+        "order": Param("int", default=20, min=0, max=999,
+                       desc="抽取优先级(升序;单粒子注入取第一个物种)"),
         "preset": Param("enum", default="custom",
                         choices=["custom", "electron", "proton", "alpha"],
                         desc="预设:选择后自动填充下方字段(再编辑即转自定义)"),
@@ -119,8 +129,10 @@ class ParticleSpeciesNode(ParticleNodeBase):
     设计上不用"发射器内的列表",而是独立声明节点 —— 物种可插拔、
     可组合(与场的原子节点同一哲学)。
 
-    连线方式:多个物种用 prev/next 连成链(定义顺序),链尾的 types
-    接入发射器的 types 输入(一个槽位接受整条链)。
+    生效方式(实测语义):物种是**图级声明** —— 图中所有 enabled 的
+    particle_species 节点都参与生成,与是否接线无关;顺序由 order 参数
+    决定(越小越先;单粒子注入取第一个)。types 端口保留为显式表达,
+    留空不影响生效(REFACTOR_PLAN #22/#27)。
     """
 
     def __init__(self, node_id, params=None):
@@ -145,7 +157,7 @@ class ParticleSpeciesNode(ParticleNodeBase):
     type="boris_integrator",
     name="Boris 积分器", category="粒子/积分", icon="⑂", domain="particle",
     inputs=_INTEGRATOR_INPUTS,
-    outputs={"next": "any"},
+    outputs={},
     params=_INTEGRATOR_PARAMS,
     version=1,
 )
@@ -157,7 +169,7 @@ class BorisIntegratorNode(ParticleNodeBase):
     type="leapfrog_integrator",
     name="蛙跳积分器", category="粒子/积分", icon="⑃", domain="particle",
     inputs=_INTEGRATOR_INPUTS,
-    outputs={"next": "any"},
+    outputs={},
     params=_INTEGRATOR_PARAMS,
     version=1,
 )
@@ -169,7 +181,7 @@ class LeapfrogIntegratorNode(ParticleNodeBase):
     type="rk4_integrator",
     name="RK4 积分器", category="粒子/积分", icon="⑄", domain="particle",
     inputs=_INTEGRATOR_INPUTS,
-    outputs={"next": "any"},
+    outputs={},
     params=_INTEGRATOR_PARAMS,
     version=1,
 )
@@ -181,7 +193,7 @@ class Rk4IntegratorNode(ParticleNodeBase):
     type="verlet_integrator",
     name="速度 Verlet 积分器", category="粒子/积分", icon="⑅", domain="particle",
     inputs=_INTEGRATOR_INPUTS,
-    outputs={"next": "any"},
+    outputs={},
     params=_INTEGRATOR_PARAMS,
     version=1,
 )
@@ -192,10 +204,15 @@ class VerletIntegratorNode(ParticleNodeBase):
 @register_node(
     type="output_encoder",
     name="输出编码器", category="粒子/输出", icon="⇥", domain="particle",
-    inputs={"prev": Port("any", default=None)},
+    inputs={},
     outputs={},
-    params={},
+    params={"order": Param("int", default=40, min=0, max=999,
+                           desc="执行序(升序;编码通常最后)")},
     version=1,
 )
 class OutputEncoderNode(ParticleNodeBase):
-    """粒子帧编码(21 字节/粒子二进制协议,v1 无参数)。"""
+    """粒子帧编码(21 字节/粒子二进制协议)。
+
+    注意:C++ 仿真循环**无条件**编码并广播粒子帧,编码器节点目前只占执行序
+    位置(REFACTOR_PLAN #27 记录的"仪式性节点"之一;待定:让它真生效或移除)。
+    """

@@ -167,12 +167,22 @@ window.editor = (function () {
                 if (node._spec?.domain !== "render") continue;
                 const jsonId = node.properties.json_id || ndId;
                 renderIds.add(jsonId);
-                if (node._spec.type === "render_pipeline_start") continue;
                 const templateId = node._spec.type.replace(/^render_item_/, "");
                 const params = {};
                 for (const [k, v] of Object.entries(node.properties)) {
                     if (k === "spec_type" || k === "json_id" || k.startsWith("in:")) continue;
                     params[k] = v;
+                }
+                if (node._spec.type === "render_pipeline_start") {
+                    // 全局渲染参数(背景/帧率上限):不实例化渲染项,直接应用
+                    pushRenderNodeParams(node);
+                    continue;
+                }
+                // 参数默认值补全(layer/opacity 等由规格给出),再实例化
+                for (const [k, pspec] of Object.entries(node._spec.params)) {
+                    if (!(k in params) && pspec.default !== undefined) {
+                        params[k] = pspec.default;
+                    }
                 }
                 window.renderRegistry && window.renderRegistry.instantiate(
                     jsonId, templateId, params);
@@ -293,12 +303,11 @@ window.editor = (function () {
                 v => {
                     node.properties[k] = v;
                     window.protocol.sendParam(node.properties.spec_type, node, k, v);
-                    // 渲染域节点:参数(颜色/模式/不透明度…)即时下发到渲染宿主。
+                    // 渲染域节点:参数(颜色/层/不透明度…)即时下发到渲染宿主。
                     // 之前在 onChange 里不推,只有"重新选中节点"时才推一次 →
                     // 改 color_mode 看不到反应,必须等下一次几何帧
-                    if (spec.domain === "render" &&
-                        spec.type !== "render_pipeline_start") {
-                        pushRenderParams(node);
+                    if (spec.domain === "render") {
+                        pushRenderNodeParams(node);
                     }
                     // 单粒子注入:参数变化即时刷新 3D 预览(L1 本地估算,
                     // 服务器 L2 预览随后到达并按含 B 的结果细化)
@@ -346,8 +355,11 @@ window.editor = (function () {
             codeEl.value = node.properties.code || renderItemTemplate(spec);
             document.getElementById("code-node").textContent =
                 `${node.properties.json_id || "n" + node.id} [${spec.type}]`;
-            // 参数下发到渲染宿主(颜色/可见性/尺寸等)
-            pushRenderParams(node);
+            // 参数下发到渲染宿主(颜色/层/可见性/尺寸等)
+            pushRenderNodeParams(node);
+        } else if (spec.type === "render_pipeline_start") {
+            codePanel.classList.add("hidden");
+            pushRenderNodeParams(node);   // 全局参数(背景/帧率上限)
         } else {
             codePanel.classList.add("hidden");
         }
@@ -562,6 +574,25 @@ registerRenderItem({
             params[k] = v;
         }
         if (window.renderHost) window.renderHost.applyParams(itemId, params);
+    }
+
+    // 渲染节点参数下发统一入口:全局参数节点走 applyGlobal,其余走渲染项
+    function pushRenderNodeParams(node) {
+        if (!window.renderHost) return;
+        if (node._spec && node._spec.type === "render_pipeline_start") {
+            const p = {};
+            for (const [k, v] of Object.entries(node.properties)) {
+                if (k === "spec_type" || k === "json_id" || k.startsWith("in:")) continue;
+                p[k] = v;
+            }
+            // 参数未显式给过 → 用规格默认值(背景/帧率上限)
+            for (const [k, spec] of Object.entries(node._spec.params)) {
+                if (!(k in p) && spec.default !== undefined) p[k] = spec.default;
+            }
+            window.renderHost.applyGlobal(p);
+            return;
+        }
+        pushRenderParams(node);
     }
 
     // 内联代码应用

@@ -1,9 +1,13 @@
 """渲染域节点:声明式节点(不做数值求值),构成右栏渲染管线。
 
-设计约定(渲染管线契约):
-- 纵向链边(prev/next,any 类型)= 管线成员关系与视觉顺序(语义上顺序无关)
-- 横向跨域边(场输出 → 渲染项.data)= 数据契约:烘焙后对该场产出对应帧,
-  通道名 = 渲染节点 id,由前端渲染项(JS 插件)执行渲染
+设计约定(渲染管线契约,2025 重构后):
+- **不再有 prev/next 链**:渲染顺序由每个渲染项的 `layer` 参数决定
+  (前端按 layer 分层挂载 + 设置 renderOrder)。历史纵向链是装饰性连接
+  (前端按**节点类型**实例化渲染项,连线改不了绘制顺序),已移除(#28)
+- 横向跨域边(场输出 → 渲染项.data)= 真数据契约:烘焙后对该场产出对应帧,
+  通道名 = 渲染节点 id,由前端渲染项(JS 插件)执行渲染。
+  实测:field_lines/efield_lines 的 data 是**必需**的;粒子/拖尾/预览三类
+  的数据来自 WS 推送通道与客户端派生,data 仅作表达
 - 渲染项实现三级来源:内置 items/*.js / user_render_items/*.js 文件插件
   (热扫)/ 节点 params["code"] 内联 JS 代码(图自包含,随图 JSON 持久化)
 
@@ -14,11 +18,14 @@ from __future__ import annotations
 
 from engine import register_node, Node, Port, Param, GraphError
 
-# 渲染项公共参数(颜色/可见性/透明度)
+# 渲染项公共参数(颜色/可见性/透明度/层)
 _RENDER_COMMON = {
     "visible": Param("bool", default=True),
     "color": Param("string", default="#88aaff"),
     "opacity": Param("scalar", default=0.9, min=0.0, max=1.0),
+    # 场景层(0 静态场景/1 线/2 粒子/3 标记);同时作为 renderOrder
+    "layer": Param("int", default=1, min=0, max=3,
+                   desc="渲染层(0 静态/1 线/2 粒子/3 标记;越大越晚绘制)"),
     "code": Param("string", default=""),  # 内联 JS 实现(空 = 用文件插件)
 }
 
@@ -35,23 +42,28 @@ class RenderNodeBase(Node):
     type="render_pipeline_start",
     name="渲染管线起始", category="渲染", icon="◆", domain="render",
     inputs={},
-    outputs={"next": "any"},
+    outputs={},
     params={
-        "background": Param("string", default="#0d1117"),
-        "fps_cap": Param("int", default=60, min=1, max=240),
+        # 全局渲染参数(宿主启动时应用一次;改参数即时生效)
+        "background": Param("string", default="#0d1117", desc="视口背景色(hex)"),
+        "fps_cap": Param("int", default=60, min=1, max=240,
+                         desc="渲染循环上限(帧/秒)"),
     },
     version=1,
 )
 class RenderPipelineStartNode(RenderNodeBase):
-    """渲染宿主入口:垂直链的顶端,携带全局渲染参数。"""
+    """渲染宿主入口:承载全局渲染参数(背景色 / 帧率上限)。
+
+    不再有 next 链(顺序已由各渲染项的 layer 参数表达,#28)。
+    """
 
 
 @register_node(
     type="render_item_field_lines",
     name="磁力线渲染项", category="渲染", icon="🧲", domain="render",
-    inputs={"prev": Port("any", default=None),
-            "data": Port("vector_field", default=None)},
-    outputs={"next": "any"},
+    inputs={"data": Port("vector_field", default=None,
+                         desc="场槽位(必需:无数据边则不产出几何帧)")},
+    outputs={},
     params={
         **_RENDER_COMMON,
         # 留空 = 用渲染项自身的拓扑分类色(闭合蓝/开放红/太阳风绿);
@@ -77,9 +89,9 @@ class RenderItemFieldLinesNode(RenderNodeBase):
 @register_node(
     type="render_item_efield_lines",
     name="电场线渲染项", category="渲染", icon="⚡", domain="render",
-    inputs={"prev": Port("any", default=None),
-            "data": Port("vector_field", default=None)},
-    outputs={"next": "any"},
+    inputs={"data": Port("vector_field", default=None,
+                         desc="场槽位(必需:无数据边则不产出几何帧)")},
+    outputs={},
     params={
         **_RENDER_COMMON,
         "color": Param("string", default="",
@@ -102,11 +114,13 @@ class RenderItemEFieldLinesNode(RenderNodeBase):
 @register_node(
     type="render_item_particles",
     name="粒子渲染项", category="渲染", icon="●", domain="render",
-    inputs={"prev": Port("any", default=None),
-            "data": Port("particle_buffer", default=None)},
-    outputs={"next": "any"},
+    inputs={"data": Port("particle_buffer", default=None,
+                         desc="可留空:粒子帧走 WS 推送通道,与连线无关")},
+    outputs={},
     params={
         **_RENDER_COMMON,
+        "layer": Param("int", default=2, min=0, max=3,
+                       desc="渲染层(默认 2:粒子层)"),
         "size": Param("scalar", default=0.07, min=0.01, max=1.0),
     },
     version=1,
@@ -118,11 +132,13 @@ class RenderItemParticlesNode(RenderNodeBase):
 @register_node(
     type="render_item_particle_trails",
     name="粒子拖尾渲染项", category="渲染", icon="彡", domain="render",
-    inputs={"prev": Port("any", default=None),
-            "data": Port("particle_buffer", default=None)},
-    outputs={"next": "any"},
+    inputs={"data": Port("particle_buffer", default=None,
+                         desc="可留空:拖尾由客户端从已收粒子帧派生")},
+    outputs={},
     params={
         **_RENDER_COMMON,
+        "layer": Param("int", default=2, min=0, max=3,
+                       desc="渲染层(默认 2:粒子层)"),
         "trail_length": Param("int", default=30, min=0, max=200),
     },
     version=1,
@@ -137,10 +153,12 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
 @register_node(
     type="render_item_source_preview",
     name="初条件预览渲染项", category="渲染", icon="◈", domain="render",
-    inputs={"prev": Port("any", default=None)},
-    outputs={"next": "any"},
+    inputs={},
+    outputs={},
     params={
         **_RENDER_COMMON,
+        "layer": Param("int", default=3, min=0, max=3,
+                       desc="渲染层(默认 3:标记层)"),
         "marker_size": Param("scalar", default=1.0, min=0.2, max=5.0),
     },
     version=1,
@@ -156,9 +174,9 @@ class RenderItemSourcePreviewNode(RenderNodeBase):
 @register_node(
     type="render_item_diagnostics",
     name="诊断点渲染项", category="渲染", icon="✚", domain="render",
-    inputs={"prev": Port("any", default=None),
-            "data": Port("scalar_field", default=None)},
-    outputs={"next": "any"},
+    inputs={"data": Port("scalar_field", default=None,
+                         desc="标量场(待实现:当前无 JS 渲染项)")},
+    outputs={},
     params={
         **_RENDER_COMMON,
         "marker_size": Param("scalar", default=0.3, min=0.05, max=2.0),
@@ -166,4 +184,7 @@ class RenderItemSourcePreviewNode(RenderNodeBase):
     version=1,
 )
 class RenderItemDiagnosticsNode(RenderNodeBase):
-    """诊断点渲染:标量场在诊断点处采样为标记点集。"""
+    """诊断点渲染:标量场在诊断点处采样为标记点集。
+
+    ⚠ 未实现:目前没有对应的 JS 渲染项文件,节点是占位(REFACTOR_PLAN #27)。
+    """

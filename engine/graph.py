@@ -18,6 +18,12 @@ import numpy as np
 from .field import Field
 from .ports import SCALAR_TYPES, FIELD_TYPES, coerce_scalar
 
+try:  # 引擎日志(与服务器同一条 JSON 流;单测环境无 setup 也能用)
+    from .logging import log as _elog
+except Exception:  # pragma: no cover
+    def _elog(*args, **kwargs):
+        pass
+
 
 class GraphError(Exception):
     """图构建/求值错误。"""
@@ -60,6 +66,7 @@ class Graph:
         self._cache = {}      # node_id -> (key, outputs)
         self._seq = itertools.count(1)
         self.version = 0      # 图版本号(每次编辑 +1)
+        self.skipped_edges = []  # 加载时被跳过的边(端口已移除/类型不符)
 
     # ================= 构建与编辑 =================
     def load_json(self, doc):
@@ -73,13 +80,23 @@ class Graph:
         self.outputs.clear()
         self._pos.clear()
         self._cache.clear()
+        self.skipped_edges.clear()
 
         for nd in doc.get("nodes", []):
             self.add_node(nd["id"], nd["type"],
                           nd.get("params"), nd.get("pos"),
                           nd.get("input_defaults"))
         for e in doc.get("edges", []):
-            self.connect(e["from"][0], e["from"][1], e["to"][0], e["to"][1])
+            try:
+                self.connect(e["from"][0], e["from"][1], e["to"][0], e["to"][1])
+            except GraphError as exc:
+                # 兼容旧图:端口已移除(如仪式性的 prev/next 链)或类型不符时
+                # 跳过该边而不是整图拒绝 —— 严格校验留在 connect() 给程序化调用。
+                self.skipped_edges.append(
+                    {"edge": [e["from"], e["to"]], "reason": str(exc)})
+                _elog("graph", "skip_edge", level="warning",
+                      msg="加载时跳过无效连线",
+                      from_=e["from"], to=e["to"], reason=str(exc))
         for name, ref in (doc.get("outputs") or {}).items():
             self.declare_output(name, ref[0], ref[1])
         # 自动推导:图中每个输出角色节点(role="output",如 output_slot)
@@ -386,12 +403,19 @@ class Graph:
         "verlet_integrator": "step",
         "output_encoder": "encode",
     }
+    # 各算子默认执行序(节点 order 参数未给出时用;保持历史链序语义)
+    _PARTICLE_OP_ORDER = {
+        "emitter": 10, "species": 20, "injection": 25, "step": 30, "encode": 40,
+    }
 
     def particle_plan(self):
         """粒子域执行计划(C++ 原生管线消费,L1)。
 
         返回 {"ops": [...], "slow_path": bool, "count": n}
-        - 顺序 = 粒子域链拓扑(prev/next 边):发射器 → 积分器 → 编码器
+        - **顺序 = 显式 `order` 参数**(升序;缺省按算子类型给默认值:
+          发射器 10 < 物种 20 < 注入 25 < 步进 30 < 编码 40)。
+          历史上顺序来自 prev/next 链的拓扑序 —— 那是"把顺序编码进拓扑",
+          已被显式参数取代(链端口连同仪式性连线一并移除,#28)。
         - 数据端口(b/e/drag)→ 槽位名:上游 output_slot 的 slot 参数,
           或 outputs 中声明该节点的槽位;未连接 = None
         - step 算子的 kernel = 类型名去 "_integrator" 后缀
@@ -399,24 +423,6 @@ class Graph:
         """
         pnodes = [nid for nid, n in self.nodes.items()
                   if n.spec().get("domain") == "particle"]
-        indeg = {n: 0 for n in pnodes}
-        adj = {n: [] for n in pnodes}
-        for (dst, _), (src, _) in self.inputs_map.items():
-            if dst in adj and src in adj:
-                adj[src].append(dst)
-                indeg[dst] += 1
-        queue = [n for n in pnodes if indeg[n] == 0]
-        order = []
-        while queue:
-            n = queue.pop(0)
-            order.append(n)
-            for m in adj[n]:
-                indeg[m] -= 1
-                if indeg[m] == 0:
-                    queue.append(m)
-        for n in pnodes:
-            if n not in order:  # 环已在 load_json 拒绝;防御兜底
-                order.append(n)
 
         def slot_of(nid):
             """节点输出 → 槽位名(output_slot 或 outputs 声明)。"""
@@ -432,7 +438,7 @@ class Graph:
 
         ops = []
         slow = False
-        for nid in order:
+        for nid in pnodes:
             node = self.nodes[nid]
             t = node.spec()["type"]
             kind = self._PARTICLE_OP_KINDS.get(t)
@@ -459,6 +465,14 @@ class Graph:
                     "drag": slot_of(ins["drag"]) if ins.get("drag") else None,
                 }
             ops.append(op)
+        # 显式顺序:order 升序,同序按节点 id 稳定排序(可复现)
+        for op in ops:
+            try:
+                op["order"] = float(op["params"].get(
+                    "order", self._PARTICLE_OP_ORDER.get(op["kind"], 999)))
+            except (TypeError, ValueError):
+                op["order"] = self._PARTICLE_OP_ORDER.get(op["kind"], 999)
+        ops.sort(key=lambda o: (o["order"], o["node"]))
         return {"ops": ops, "slow_path": slow, "count": len(ops)}
 
     # ================= 求值与烘焙 =================

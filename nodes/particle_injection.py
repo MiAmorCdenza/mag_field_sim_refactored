@@ -4,14 +4,15 @@
 - 独立文件,registry 扫描即注册(丢弃/修改即热加载)
 - 声明式节点:domain="particle" 不参与 Python 求值,plan 编译为
   `injection` 算子 → C++ InjectionConfig → Emitter mode 3
-- 端口化组合:spec 输出 → 发射器 init 输入(连上即生效)
+- 端口化组合:spec 输出 → 发射器 init 输入。**实测语义:注入按图级生效**
+  (删掉这条线注入照样起作用,#27),接线只作可读性表达;确实弃用请删节点
 - 物理约定:
   * 位置 (r, lat, lon) 为 GSM 球坐标(Re / 度);或直接 (x, y, z)
   * 速度 vpitch 模式:俯仰角相对**局部磁力线方向 B̂**,
     v = v·(cosα·B̂ + sinα·(cosφ·ê₁ + sinφ·ê₂)),φ = 回旋相位
     α=90° 垂直于 B(磁镜捕获), α=0° 沿 B(束流)
   * 速度 vxyz 模式:直接给定三分量(km/s),不需磁场
-- 粒子种类(电荷/质量/颜色)由 particle_species 链提供,取链首启用项
+- 粒子种类(电荷/质量/颜色)由 particle_species 提供,取 order 最小者
 """
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ from engine import register_node, Node, Port, Param, GraphError
     inputs={},
     outputs={"spec": "any"},
     params={
+        "order": Param("int", default=25, min=0, max=999,
+                       desc="执行序(升序;注入在发射器之后、步进之前)"),
         # ---- 位置 ----
         "pos_mode": Param("enum", default="rll", choices=["rll", "xyz"],
                           desc="位置表示:rll=地心距+纬度+经度 / xyz=直接坐标"),

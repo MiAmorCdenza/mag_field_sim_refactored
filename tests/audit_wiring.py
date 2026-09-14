@@ -117,11 +117,13 @@ def main():
                   if n["type"] == "render_item_field_lines"), None)
 
     variants = [("基线", base)]
+    # #28 之后:链端口已从节点规格移除,旧图里的 prev/next 边会在加载时被
+    # 跳过(engine.graph.load_json 容错) —— 下面这条验证"删链什么都不变"
     if pnodes:
-        variants.append(("删粒子域链 prev/next(保留数据线)",
+        variants.append(("删粒子域链 prev/next(旧图兼容路径)",
                          strip_edges(base, {"prev", "next"}, pnodes)))
     if rnodes:
-        variants.append(("删渲染域链 prev/next(保留 data)",
+        variants.append(("删渲染域链 prev/next(旧图兼容路径)",
                          strip_edges(base, {"prev", "next"}, rnodes)))
     if encoder:
         variants.append((f"删编码器节点 {encoder}", drop_node(base, encoder)))
@@ -133,6 +135,12 @@ def main():
                          drop_edge(base, emitter, "init")))
         variants.append((f"删物种→{emitter}.types 数据线",
                          drop_edge(base, emitter, "types")))
+        # 显式顺序验证:把发射器 order 调到最大 → 计划里应排到最后
+        variants.append((f"把 {emitter}.order 改成 90(应排到最后)",
+                         set_param(base, emitter, "order", 90)))
+    if stepper:
+        variants.append((f"把 {stepper}.order 改成 5(应排到最前)",
+                         set_param(base, stepper, "order", 5)))
     if lines:
         variants.append((f"删 {lines}.data 数据线", drop_edge(base, lines, "data")))
     if holder:

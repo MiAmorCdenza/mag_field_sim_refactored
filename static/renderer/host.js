@@ -110,11 +110,35 @@ window.renderHost = (function () {
     function applyParams(itemId, params) {
         const inst = items.get(itemId);
         if (!inst) return false;
+        params = params || {};
+        // layer 是宿主级参数:换层 = 换场景分组 + 设 renderOrder
+        // (渲染项的 JS 里 layer 只是默认值,节点参数经此覆盖)
+        if (params.layer !== undefined && inst.group) {
+            const L = Math.max(0, Math.min(3, params.layer | 0));
+            const target = layers[L];
+            if (target && inst.group.parent !== target) {
+                target.add(inst.group);        // three.js 会自动从旧父级移除
+            }
+            inst.group.renderOrder = L;
+            inst.layer = L;
+        }
         if (inst.onParam) {
-            try { inst.onParam.call(inst, params || {}); }
+            try { inst.onParam.call(inst, params); }
             catch (e) { console.error("[renderHost] onParam 失败:", itemId, e); }
         }
         return true;
+    }
+
+    // ---- 全局渲染参数(render_pipeline_start 节点)----
+    function applyGlobal(params) {
+        params = params || {};
+        if (params.background) {
+            try { scene.background = new THREE.Color(params.background); }
+            catch (e) { console.warn("[renderHost] 背景色无效:", params.background); }
+        }
+        if (params.fps_cap !== undefined) {
+            fpsCap = Math.max(1, params.fps_cap | 0);
+        }
     }
 
     function resize() {
@@ -126,8 +150,14 @@ window.renderHost = (function () {
     window.addEventListener("resize", resize);
     resize();
 
-    function animate() {
+    let fpsCap = 60;
+    let lastDraw = 0;
+    function animate(ts) {
         requestAnimationFrame(animate);
+        // fps 上限:超过上限的帧跳过绘制(控制 GPU 占用;0 = 不限)
+        const now = ts || performance.now();
+        if (fpsCap > 0 && now - lastDraw < 1000 / fpsCap - 0.5) return;
+        lastDraw = now;
         controls.update();
         renderer3d.render(scene, camera);
     }
@@ -135,7 +165,7 @@ window.renderHost = (function () {
 
     const exports = {
         scene, layers, camera, renderer3d, controls,
-        registerItem, unregisterItem, dispatch, applyParams,
+        registerItem, unregisterItem, dispatch, applyParams, applyGlobal,
         items,
     };
     return exports;

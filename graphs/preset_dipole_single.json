@@ -1,42 +1,168 @@
 {
-  "version": 1,
-  "lattice": {"preset": "tiny"},
-  "nodes": [
-    {"id": "dip", "type": "dipole", "input_defaults": {"ps": 0.5}},
-    {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
-    {"id": "inj", "type": "particle_injection",
-     "params": {"pos_mode": "rll", "r": 6.6, "lat": 0.0, "lon": 0.0,
-                "vel_mode": "vpitch", "v": 400.0, "pitch": 70.0, "phase": 0.0}},
-    {"id": "sp", "type": "particle_species", "params": {"preset": "proton"}},
-    {"id": "pe", "type": "particle_emitter",
-     "params": {"count": 1, "max_range": 15.0}},
-    {"id": "bi", "type": "boris_integrator",
-     "params": {"dt": 0.01, "substeps": 20, "max_range": 15.0,
-                "substep_cap": 50}},
-    {"id": "enc", "type": "output_encoder"},
-    {"id": "rp", "type": "render_pipeline_start"},
-    {"id": "rfl", "type": "render_item_field_lines"},
-    {"id": "rpt", "type": "render_item_particles",
-     "params": {"size": 0.12}},
-    {"id": "rtrl", "type": "render_item_particle_trails",
-     "params": {"trail_length": 200, "opacity": 0.9}},
-    {"id": "rsp", "type": "render_item_source_preview",
-     "params": {"marker_size": 1.2}},
-    {"id": "rdi", "type": "render_item_diagnostics"}
-  ],
-  "edges": [
-    {"from": ["dip", "field"], "to": ["ob", "field"]},
-    {"from": ["inj", "spec"], "to": ["pe", "init"]},
-    {"from": ["sp", "types"], "to": ["pe", "types"]},
-    {"from": ["ob", "out"], "to": ["bi", "b"]},
-    {"from": ["pe", "next"], "to": ["bi", "prev"]},
-    {"from": ["bi", "next"], "to": ["enc", "prev"]},
-    {"from": ["rp", "next"], "to": ["rfl", "prev"]},
-    {"from": ["rfl", "next"], "to": ["rpt", "prev"]},
-    {"from": ["rpt", "next"], "to": ["rtrl", "prev"]},
-    {"from": ["rtrl", "next"], "to": ["rsp", "prev"]},
-    {"from": ["rsp", "next"], "to": ["rdi", "prev"]},
-    {"from": ["ob", "out"], "to": ["rfl", "data"]}
-  ],
-  "outputs": {}
+ "version": 1,
+ "lattice": {
+  "preset": "tiny"
+ },
+ "nodes": [
+  {
+   "id": "dip",
+   "type": "dipole",
+   "input_defaults": {
+    "ps": 0.5
+   }
+  },
+  {
+   "id": "ob",
+   "type": "output_slot",
+   "params": {
+    "slot": "B"
+   }
+  },
+  {
+   "id": "inj",
+   "type": "particle_injection",
+   "params": {
+    "pos_mode": "rll",
+    "r": 6.6,
+    "lat": 0.0,
+    "lon": 0.0,
+    "vel_mode": "vpitch",
+    "v": 400.0,
+    "pitch": 70.0,
+    "phase": 0.0,
+    "order": 25
+   }
+  },
+  {
+   "id": "sp",
+   "type": "particle_species",
+   "params": {
+    "preset": "proton",
+    "order": 20
+   }
+  },
+  {
+   "id": "pe",
+   "type": "particle_emitter",
+   "params": {
+    "count": 1,
+    "max_range": 15.0,
+    "order": 10
+   }
+  },
+  {
+   "id": "bi",
+   "type": "boris_integrator",
+   "params": {
+    "dt": 0.01,
+    "substeps": 20,
+    "max_range": 15.0,
+    "substep_cap": 50,
+    "order": 30
+   }
+  },
+  {
+   "id": "enc",
+   "type": "output_encoder",
+   "params": {
+    "order": 40
+   }
+  },
+  {
+   "id": "rp",
+   "type": "render_pipeline_start"
+  },
+  {
+   "id": "rfl",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1
+   }
+  },
+  {
+   "id": "rpt",
+   "type": "render_item_particles",
+   "params": {
+    "size": 0.12,
+    "layer": 2
+   }
+  },
+  {
+   "id": "rtrl",
+   "type": "render_item_particle_trails",
+   "params": {
+    "trail_length": 200,
+    "opacity": 0.9,
+    "layer": 2
+   }
+  },
+  {
+   "id": "rsp",
+   "type": "render_item_source_preview",
+   "params": {
+    "marker_size": 1.2,
+    "layer": 3
+   }
+  },
+  {
+   "id": "rdi",
+   "type": "render_item_diagnostics",
+   "params": {
+    "layer": 1
+   }
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "dip",
+    "field"
+   ],
+   "to": [
+    "ob",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "inj",
+    "spec"
+   ],
+   "to": [
+    "pe",
+    "init"
+   ]
+  },
+  {
+   "from": [
+    "sp",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "bi",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "rfl",
+    "data"
+   ]
+  }
+ ],
+ "outputs": {}
 }

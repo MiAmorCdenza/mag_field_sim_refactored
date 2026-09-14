@@ -52,8 +52,10 @@ def part_a():
     with open(PRESET, encoding="utf-8") as f:
         doc = json.load(f)
     g.load_json(doc)
-    assert len(g.nodes) == 8 and len(g.inputs_map) == 7
-    print(f"C2 图加载:{len(g.nodes)} 节点 {len(g.inputs_map)} 边,拓扑校验 ✓")
+    # #28:链边已移除,只剩真数据边(ob→bi.b、ob→rfl.data)
+    assert len(g.nodes) == 8 and len(g.inputs_map) == 3, \
+        (len(g.nodes), len(g.inputs_map))
+    print(f"C2 图加载:{len(g.nodes)} 节点 {len(g.inputs_map)} 数据边,拓扑校验 ✓")
 
     # C3 三域列带布局(场左 → 粒子中 → 渲染右,渲染域垂直链)
     xs_field = [g._pos[n][0] for n in ("dip", "ob")]

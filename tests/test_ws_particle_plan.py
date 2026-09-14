@@ -32,8 +32,6 @@ def plan_graph(integrator="boris_integrator"):
         "edges": [
             {"from": ["dip", "field"], "to": ["ob", "field"]},
             {"from": ["ob", "out"], "to": ["bi", "b"]},
-            {"from": ["pe", "next"], "to": ["bi", "prev"]},
-            {"from": ["bi", "next"], "to": ["oe", "prev"]},
         ],
         "outputs": {},
     }

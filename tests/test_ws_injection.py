@@ -42,8 +42,6 @@ def inj_graph(pos_mode="rll", vel_mode="vpitch", pitch=90.0, r=R0):
             {"from": ["inj", "spec"], "to": ["pe", "init"]},
             {"from": ["sp", "types"], "to": ["pe", "types"]},
             {"from": ["ob", "out"], "to": ["bi", "b"]},
-            {"from": ["pe", "next"], "to": ["bi", "prev"]},
-            {"from": ["bi", "next"], "to": ["oe", "prev"]},
         ],
         "outputs": {},
     }

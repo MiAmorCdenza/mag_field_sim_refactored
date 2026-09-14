@@ -579,3 +579,20 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
       背景写死在 renderer.js,恰好等于其默认值)、`诊断点渲染项`(无 JS 实现)
     → 后续"慢慢改"的方向:① 顺序改成显式参数(渲染 layer / 粒子 order);
     ② 真依赖补诊断(无 B 表告警);③ 装饰项删除或接上;④ 物种表(见 #22 讨论)
+28. **顺序显式化(#27 的 ①,已落地)**:**边只表示数据依赖,顺序一律走参数**。
+    - 粒子域:各节点新增 `order`(int;默认 发射器 10 / 物种 20 / 注入 25 /
+      步进 30 / 编码 40,与历史链序语义一致),`particle_plan()` 按
+      `(order, node)` 稳定排序 —— 不再用拓扑序(拓扑序会让"首个 EmitterOp
+      生效(v1)"变成隐式副作用)。实测:`pe.order=90` → 发射器排最后;
+      `bi.order=5` → 步进排最前
+    - 渲染域:各渲染项新增 `layer`(int 0..3,默认 线1/粒子2/标记3),前端
+      按 layer 重挂到场景层并设 `renderOrder`(原来是**写死在渲染项 JS** 里,
+      连线根本改不了绘制顺序);`render_pipeline_start` 的 background/fps_cap
+      **真正接线**(宿主 applyGlobal:背景色 + 帧率上限),不再是死参数
+    - **prev/next 端口已从所有粒子/渲染节点规格移除**;旧图里残留的链边由
+      `load_json` 容错跳过(记录 `graph.skipped_edges` + 日志 warning),
+      严格校验仍留在 `connect()` 给程序化调用 —— 兼容旧文件且不掩盖笔误
+    - 迁移:`tests/migrate_graphs.py`(graphs/*.json + 内嵌 C++ 默认图 +
+      测试夹具);新增回归 `test_engine_smoke.py::test_explicit_order_and_legacy_edges`
+    - 判读工具:`tests/audit_wiring.py` 现在可直接看出"删旧链边零影响""改
+      order 即改顺序"

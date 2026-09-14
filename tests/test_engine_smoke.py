@@ -276,15 +276,13 @@ def test_particle_domain():
             {"id": "pe", "type": "particle_emitter",
              "params": {"mode": 1, "v_base": 500.0}},
             {"id": "bi", "type": "boris_integrator",
-             "params": {"dt": 0.02, "substeps": 4}},
-            {"id": "rk", "type": "rk4_integrator"},
+             "params": {"dt": 0.02, "substeps": 4, "order": 30}},
+            {"id": "rk", "type": "rk4_integrator", "params": {"order": 31}},
             {"id": "oe", "type": "output_encoder"},
             {"id": "ob", "type": "output_slot", "params": {"slot": "B"}},
         ],
         "edges": [
-            {"from": ["pe", "next"], "to": ["bi", "prev"]},
-            {"from": ["bi", "next"], "to": ["rk", "prev"]},
-            {"from": ["rk", "next"], "to": ["oe", "prev"]},
+            # #28:无 prev/next 链;步进顺序 = order(30 < 31)
             {"from": ["ob", "out"], "to": ["bi", "b"]},
         ],
         "outputs": {},
@@ -299,7 +297,7 @@ def test_particle_domain():
     assert plan["ops"][1]["slots"]["b"] == "B"
     assert plan["ops"][1]["slots"]["e"] is None
     assert plan["ops"][2]["kernel"] == "rk4"
-    print("✓ particle_plan 编译正确(链序/内核/槽位解析)")
+    print("✓ particle_plan 编译正确(order 排序/内核/槽位解析)")
 
     # 未知粒子域类型 → slow_path(成本徽标)
     saved = Graph._PARTICLE_OP_KINDS.pop("output_encoder")
@@ -347,17 +345,15 @@ def test_particle_species():
         "nodes": [
             {"id": "pe", "type": "particle_emitter"},
             {"id": "se", "type": "particle_species",
-             "params": {"preset": "electron"}},
+             "params": {"preset": "electron", "order": 21}},
             {"id": "sp", "type": "particle_species",
-             "params": {"preset": "proton"}},
+             "params": {"preset": "proton", "order": 22}},
             {"id": "sa", "type": "particle_species",
-             "params": {"preset": "alpha", "enabled": False}},
-            {"id": "sc", "type": "particle_species"},
+             "params": {"preset": "alpha", "enabled": False, "order": 23}},
+            {"id": "sc", "type": "particle_species", "params": {"order": 24}},
         ],
         "edges": [
-            {"from": ["se", "next"], "to": ["sp", "prev"]},
-            {"from": ["sp", "next"], "to": ["sa", "prev"]},
-            {"from": ["sa", "next"], "to": ["sc", "prev"]},
+            # #28:不再有 prev/next 链;顺序由 order 参数表达(21..24)
             {"from": ["sc", "types"], "to": ["pe", "types"]},
         ],
         "outputs": {},
@@ -375,10 +371,13 @@ def test_particle_species():
     by_id = {o["node"]: o for o in species}
     assert by_id["sa"]["params"]["enabled"] is False
     assert by_id["sc"]["params"]["q"] == 1.0  # 默认自定义粒子
-    # 链序:物种拓扑序 = prev/next 链顺序,发射器的 types 输入指向链尾
+    # #28:顺序由显式 order 参数决定(se 21 < sp 22 < sa 23 < sc 24)
+    assert [o["node"] for o in species] == ["se", "sp", "sa", "sc"], \
+        [o["node"] for o in species]
+    assert [o["order"] for o in species] == [21, 22, 23, 24]
     em = next(o for o in plan["ops"] if o["kind"] == "emitter")
     assert em["inputs"].get("types") == "sc"
-    print("✓ 计划聚合 4 个物种算子(链序 + 发射器 types 指向链尾)")
+    print("✓ 计划聚合 4 个物种算子(order 显式排序 + 发射器 types)")
 
     # 预设切换 + 手动编辑转自定义
     g.set_param("sc", "preset", "alpha")
@@ -423,8 +422,6 @@ def test_particle_injection():
         "edges": [
             {"from": ["inj", "spec"], "to": ["pe", "init"]},
             {"from": ["sp", "types"], "to": ["pe", "types"]},
-            {"from": ["pe", "next"], "to": ["bi", "prev"]},
-            {"from": ["bi", "next"], "to": ["oe", "prev"]},
         ],
         "outputs": {},
     }
@@ -437,6 +434,7 @@ def test_particle_injection():
     assert inj["params"]["pos_mode"] == "rll"
     assert inj["params"]["vel_mode"] == "vpitch"
     assert inj["params"]["pitch"] == 90.0 and inj["params"]["r"] == 6.6
+    assert inj["order"] == 25
     emit = next(o for o in plan["ops"] if o["kind"] == "emitter")
     assert emit["params"]["count"] == 1
     assert emit["inputs"]["init"] == "inj"
@@ -469,6 +467,58 @@ def test_lattice_axes_full_span():
     print("✓ 点阵不变量:所有预设轴覆盖完整 [vmin,vmax](含负外侧),域半宽正确")
 
 
+def test_explicit_order_and_legacy_edges():
+    """#28:顺序 = 显式 order 参数;旧图的 prev/next 链边容错跳过。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+
+    # (a) 旧图(带 prev/next 链)必须能加载:边被跳过而不是整图拒绝
+    legacy = {
+        "version": 1,
+        "nodes": [
+            {"id": "pe", "type": "particle_emitter", "params": {"count": 10}},
+            {"id": "bi", "type": "boris_integrator"},
+            {"id": "oe", "type": "output_encoder"},
+        ],
+        "edges": [
+            {"from": ["pe", "next"], "to": ["bi", "prev"]},
+            {"from": ["bi", "next"], "to": ["oe", "prev"]},
+        ],
+        "outputs": {},
+    }
+    g.load_json(legacy)
+    assert len(g.skipped_edges) == 2, g.skipped_edges
+    assert all("无输入端口 prev" in s["reason"] or "无输出端口 next" in s["reason"]
+               for s in g.skipped_edges), g.skipped_edges
+    kinds = [o["kind"] for o in g.particle_plan()["ops"]]
+    assert kinds == ["emitter", "step", "encode"], kinds
+    print("✓ 旧图 prev/next 链边容错跳过(仅记录,不整图拒绝)+ 默认序正确")
+
+    # (b) order 参数决定顺序:把发射器排到最后
+    doc = dict(legacy)
+    doc["nodes"] = [
+        {"id": "pe", "type": "particle_emitter", "params": {"count": 10, "order": 90}},
+        {"id": "bi", "type": "boris_integrator", "params": {"order": 5}},
+        {"id": "oe", "type": "output_encoder", "params": {"order": 50}},
+    ]
+    doc["edges"] = []
+    g.load_json(doc)
+    plan = g.particle_plan()
+    assert [o["kind"] for o in plan["ops"]] == ["step", "encode", "emitter"], plan
+    assert [o["order"] for o in plan["ops"]] == [5, 50, 90]
+    print("✓ 计划顺序 = order 升序(5 步进 → 50 编码 → 90 发射器)")
+
+    # (c) 默认 order(无参数)保持历史语义:发射器 → 步进 → 编码
+    g.load_json({"version": 1, "nodes": [
+        {"id": "pe", "type": "particle_emitter"},
+        {"id": "bi", "type": "boris_integrator"},
+        {"id": "oe", "type": "output_encoder"}], "edges": [], "outputs": {}})
+    assert [o["kind"] for o in g.particle_plan()["ops"]] == \
+        ["emitter", "step", "encode"]
+    print("✓ 无 order 参数时按类型默认(10/30/40),与历史链序一致")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -484,4 +534,5 @@ if __name__ == "__main__":
     test_particle_species()
     test_particle_injection()
     test_lattice_axes_full_span()
+    test_explicit_order_and_legacy_edges()
     print("\n全部冒烟测试通过 ✅")
