@@ -218,13 +218,6 @@
    "params": {
     "layer": 3
    }
-  },
-  {
-   "id": "rdi",
-   "type": "render_item_diagnostics",
-   "params": {
-    "layer": 1
-   }
   }
  ],
  "edges": [
@@ -475,16 +468,6 @@
    ],
    "to": [
     "rel",
-    "data"
-   ]
-  },
-  {
-   "from": [
-    "od",
-    "out"
-   ],
-   "to": [
-    "rdi",
     "data"
    ]
   }

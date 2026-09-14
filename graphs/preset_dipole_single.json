@@ -103,13 +103,6 @@
     "marker_size": 1.2,
     "layer": 3
    }
-  },
-  {
-   "id": "rdi",
-   "type": "render_item_diagnostics",
-   "params": {
-    "layer": 1
-   }
   }
  ],
  "edges": [

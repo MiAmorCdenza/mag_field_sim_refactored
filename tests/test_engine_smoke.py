@@ -519,6 +519,75 @@ def test_explicit_order_and_legacy_edges():
     print("✓ 无 order 参数时按类型默认(10/30/40),与历史链序一致")
 
 
+def test_plan_warnings():
+    """#29 计划诊断:真依赖缺失必须变成结构化告警(不能静默)。"""
+    from engine.registry import default_registry
+    reg = default_registry()
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+
+    def load(nodes, edges):
+        g.load_json({"version": 1, "nodes": nodes, "edges": edges,
+                     "outputs": {}})
+        return g.particle_plan()
+
+    # (a) 步进算子没有 b 输入 → step_no_b
+    p = load([
+        {"id": "pe", "type": "particle_emitter"},
+        {"id": "bi", "type": "boris_integrator"},
+        {"id": "oe", "type": "output_encoder"}], [])
+    codes = [w["code"] for w in p["warnings"]]
+    assert "step_no_b" in codes, codes
+    w = next(w for w in p["warnings"] if w["code"] == "step_no_b")
+    assert w["node"] == "bi" and "直线飞行" in w["msg"]
+    print("✓ 步进算子无 B 表 → step_no_b 告警(含节点与后果说明)")
+
+    # (b) b 接在未声明槽位的节点上 → step_slot_unresolved
+    p = load([
+        {"id": "dip", "type": "dipole"},
+        {"id": "pe", "type": "particle_emitter"},
+        {"id": "bi", "type": "boris_integrator"},
+        {"id": "oe", "type": "output_encoder"},
+    ], [{"from": ["dip", "field"], "to": ["bi", "b"]}])
+    codes = [w["code"] for w in p["warnings"]]
+    assert "step_slot_unresolved" in codes, codes
+    print("✓ 场接到未声明槽位的节点 → step_slot_unresolved 告警")
+
+    # (c) 无编码器 / 无发射器 → 各自告警
+    p = load([{"id": "bi", "type": "boris_integrator"}], [])
+    codes = [w["code"] for w in p["warnings"]]
+    assert "no_encoder" in codes and "no_emitter" in codes, codes
+    print("✓ 无编码器(不发粒子帧)/ 无发射器 → 各自告警")
+
+    # (d) 正常图 → 零告警 + 渲染绑定解析出槽位(供服务器诊断)
+    g.load_json({"version": 1,
+                 "nodes": [{"id": "dip", "type": "dipole"},
+                           {"id": "ob", "type": "output_slot",
+                            "params": {"slot": "B"}},
+                           {"id": "pe", "type": "particle_emitter"},
+                           {"id": "bi", "type": "boris_integrator"},
+                           {"id": "oe", "type": "output_encoder"},
+                           {"id": "rfl", "type": "render_item_field_lines"}],
+                 "edges": [{"from": ["dip", "field"], "to": ["ob", "field"]},
+                           {"from": ["ob", "out"], "to": ["bi", "b"]},
+                           {"from": ["ob", "out"], "to": ["rfl", "data"]}],
+                 "outputs": {}})
+    p = g.particle_plan()
+    assert p["warnings"] == [], p["warnings"]
+    binds = {b["type"]: b for b in g.render_bindings()}
+    assert binds["render_item_field_lines"]["slot"] == "B"
+    print("✓ 正常图零告警;渲染绑定自带解析后的 slot(服务器据此诊断)")
+
+    # (e) 渲染项的 data 断开 → slot 为 None(服务器应告警 render_no_slot)
+    g.load_json({"version": 1,
+                 "nodes": [{"id": "ob", "type": "output_slot",
+                            "params": {"slot": "B"}},
+                           {"id": "rfl", "type": "render_item_field_lines"}],
+                 "edges": [], "outputs": {}})
+    binds = {b["type"]: b for b in g.render_bindings()}
+    assert binds["render_item_field_lines"]["slot"] is None
+    print("✓ 渲染项 data 断开 → slot=None(服务器告警:不会产出几何帧)")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -535,4 +604,5 @@ if __name__ == "__main__":
     test_particle_injection()
     test_lattice_axes_full_span()
     test_explicit_order_and_legacy_edges()
+    test_plan_warnings()
     print("\n全部冒烟测试通过 ✅")

@@ -384,6 +384,41 @@ window.editor = (function () {
                 r * Math.sin(lat)];
     }
 
+    // ---------- 计划告警:画布红框 + 角标 ----------
+    // 服务器把编译期诊断(无 B 表/无编码器/槽位未解析…)随 plan_status 广播;
+    // 这里把相关节点标红并写出原因 —— 静默失败(实测:删 b 线后粒子直线飞、
+    // 无任何提示)必须在画布上可见。
+    let lastWarnNodes = new Set();
+    function onPlanWarnings(warnings) {
+        warnings = warnings || [];
+        // 清掉上一轮标注
+        for (const id of lastWarnNodes) {
+            const n = graph.getNodeById(id);
+            if (n) { n.boxcolor = null; n.onDrawForeground = null; }
+        }
+        const byNode = {};
+        for (const w of warnings) {
+            if (!w.node) continue;
+            (byNode[w.node] = byNode[w.node] || []).push(w);
+        }
+        lastWarnNodes = new Set(Object.keys(byNode));
+        for (const [nid, ws] of Object.entries(byNode)) {
+            const n = graph.getNodeById(nid);
+            if (!n) continue;
+            n.boxcolor = "#f85149";
+            const text = "⚠ " + (ws[0].code || "告警");
+            n.onDrawForeground = function (ctx) {
+                if (!this.flags || this.flags.collapsed) return;
+                ctx.save();
+                ctx.font = "10px sans-serif";
+                ctx.fillStyle = "#f85149";
+                ctx.fillText(text, 6, this.size[1] - 6);
+                ctx.restore();
+            };
+        }
+        canvas.setDirty(true, true);
+    }
+
     // ---------- 物种:真实种群读数 + 画布标注 ----------
     // 事实:物种聚合是**图级**的(服务器聚合计划里所有 particle_species 节点),
     // prev/next 链与发射器 types 接线只是表达习惯 —— 未接线的物种照样参与
@@ -841,7 +876,7 @@ registerRenderItem({
     }
 
     return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview,
-             onPopulation, markSpeciesNodes,
+             onPopulation, markSpeciesNodes, onPlanWarnings,
              markGraphApplied: () => setGraphDirty(false),
              isGraphDirty: () => graphDirty };
 })();

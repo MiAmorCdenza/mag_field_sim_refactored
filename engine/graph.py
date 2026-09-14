@@ -372,9 +372,12 @@ class Graph:
     def render_bindings(self):
         """渲染域绑定表(声明节点 → 数据契约)。
 
-        返回 [{node_id, type, params, inputs: {端口: [上游节点, 上游端口]}}]
+        返回 [{node_id, type, params, inputs: {端口: [上游节点, 上游端口]},
+               slot: 数据源解析出的槽位名或 None}]
         供服务器编译数据通道:对绑定场运行对应数据源(追踪/采样/编码),
         产出帧,通道名 = 渲染节点 id。
+        槽位名在此**一次性解析**(与 particle_plan 同一规则),服务器不再
+        各自维护一份反查表;解析不出 = 该渲染项拿不到数据(调用方应告警)。
         """
         out = []
         for nid, node in self.nodes.items():
@@ -384,13 +387,29 @@ class Graph:
             for (dst, dport), (src, sport) in self.inputs_map.items():
                 if dst == nid:
                     ins[dport] = [src, sport]
+            slot = None
+            if "data" in ins:
+                slot = self._slot_of(ins["data"][0])
             out.append({
                 "node_id": nid,
                 "type": node.spec()["type"],
                 "params": dict(node.params),
                 "inputs": ins,
+                "slot": slot,
             })
         return out
+
+    def _slot_of(self, nid):
+        """节点 → 输出槽位名(output_slot 节点的 slot 参数,或 outputs 声明)。"""
+        node = self.nodes.get(nid)
+        if node is None:
+            return None
+        if node.spec().get("type") == "output_slot":
+            return node.params.get("slot", "unnamed")
+        for name, (sid, _sport) in self.outputs.items():
+            if sid == nid:
+                return name
+        return None
 
     # ================= 粒子域 =================
     _PARTICLE_OP_KINDS = {
@@ -424,19 +443,8 @@ class Graph:
         pnodes = [nid for nid, n in self.nodes.items()
                   if n.spec().get("domain") == "particle"]
 
-        def slot_of(nid):
-            """节点输出 → 槽位名(output_slot 或 outputs 声明)。"""
-            node = self.nodes.get(nid)
-            if node is None:
-                return None
-            if node.spec().get("type") == "output_slot":
-                return node.params.get("slot", "unnamed")
-            for name, (sid, _sport) in self.outputs.items():
-                if sid == nid:
-                    return name
-            return None
-
         ops = []
+        warnings = []
         slow = False
         for nid in pnodes:
             node = self.nodes[nid]
@@ -460,10 +468,31 @@ class Graph:
             if kind == "step":
                 op["kernel"] = t[:-len("_integrator")]
                 op["slots"] = {
-                    "b": slot_of(ins["b"]) if ins.get("b") else None,
-                    "e": slot_of(ins["e"]) if ins.get("e") else None,
-                    "drag": slot_of(ins["drag"]) if ins.get("drag") else None,
+                    "b": self._slot_of(ins["b"]) if ins.get("b") else None,
+                    "e": self._slot_of(ins["e"]) if ins.get("e") else None,
+                    "drag": self._slot_of(ins["drag"]) if ins.get("drag") else None,
                 }
+                # ---- 静默失败诊断(实测踩过:删掉 b 数据线 → 无磁场、无提示)----
+                if not ins.get("b"):
+                    warnings.append({
+                        "code": "step_no_b", "node": nid,
+                        "msg": f"步进算子 {nid} 没有连接磁场槽位:"
+                               f"粒子将不受磁场力(直线飞行)",
+                    })
+                elif op["slots"]["b"] is None:
+                    warnings.append({
+                        "code": "step_slot_unresolved", "node": nid, "port": "b",
+                        "msg": f"步进算子 {nid} 的 b 输入来自 "
+                               f"{ins['b']},该节点未声明输出槽位:磁场不会进表",
+                    })
+                for port in ("e", "drag"):
+                    if ins.get(port) and op["slots"][port] is None:
+                        warnings.append({
+                            "code": "step_slot_unresolved", "node": nid,
+                            "port": port,
+                            "msg": f"步进算子 {nid} 的 {port} 输入未解析出槽位:"
+                                   f"该场(可选)不会进表",
+                        })
             ops.append(op)
         # 显式顺序:order 升序,同序按节点 id 稳定排序(可复现)
         for op in ops:
@@ -473,7 +502,21 @@ class Graph:
             except (TypeError, ValueError):
                 op["order"] = self._PARTICLE_OP_ORDER.get(op["kind"], 999)
         ops.sort(key=lambda o: (o["order"], o["node"]))
-        return {"ops": ops, "slow_path": slow, "count": len(ops)}
+        kinds = {o["kind"] for o in ops}
+        if "encode" not in kinds:
+            warnings.append({
+                "code": "no_encoder",
+                "msg": "图中没有输出编码器节点:服务器不会发送粒子帧"
+                       "(视口将看不到粒子)",
+            })
+        if "emitter" not in kinds:
+            warnings.append({
+                "code": "no_emitter",
+                "msg": "图中没有发射器节点:沿用服务器默认发射器与全局粒子数",
+            })
+        # 注入 + count>1 的退化组合由 C++ 侧判定(需要计划参数聚合结果)
+        return {"ops": ops, "slow_path": slow, "count": len(ops),
+                "warnings": warnings}
 
     # ================= 求值与烘焙 =================
     def _node_lattice(self, node_id):

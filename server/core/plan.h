@@ -58,9 +58,18 @@ struct PlanOp {
     InjectionConfig injection;   // 单粒子注入初条件
 };
 
+// 计划告警(编译期诊断:静默失败必须可见,如"步进算子无 B 表")
+struct PlanWarning {
+    std::string code;   // step_no_b / step_slot_unresolved / no_encoder / no_emitter
+    std::string node;   // 相关节点 id(可空)
+    std::string port;   // 相关端口(可空)
+    std::string msg;    // 面向用户的中文说明
+};
+
 struct Plan {
     std::vector<PlanOp> ops;
     bool slow_path = false;  // 含未编译粒子域节点时置位(成本徽标)
+    std::vector<PlanWarning> warnings;  // 编译期诊断(前端 toast/HUD/节点标注)
 };
 
 // 原生节点描述(与 Python 侧 nodes/particle_nodes.py 声明桩镜像;

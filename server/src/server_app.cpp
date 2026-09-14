@@ -54,6 +54,10 @@ struct SharedState {
     bool plan_slow_path = false;
     int plan_notice_count = -1;      // 计划广播过的图内粒子数(0=无覆盖)
     bool plan_degenerate = false;    // 注入 + count>1(粒子全重合,已告警)
+    std::string plan_warnings_json;  // 上次广播的告警集合(变化判定用)
+    json plan_warnings = json::array();
+    std::string plan_status_json;    // 最近 plan_status(新连接重放:告警可见性)
+    json render_warnings = json::array();  // 渲染绑定解析告警(图上传时算) 
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     std::string source_preview_json;                // 最近 L2 初条件预览(新连接重放)
     std::string population_json;                    // 最近解析种群(新连接重放)
@@ -106,8 +110,7 @@ std::string default_graph_json() {
     {"id": "rel", "type": "render_item_efield_lines", "params": {"layer": 1}},
     {"id": "rpt", "type": "render_item_particles", "params": {"layer": 2}},
     {"id": "rtrl", "type": "render_item_particle_trails", "params": {"layer": 2}},
-    {"id": "rsp", "type": "render_item_source_preview", "params": {"layer": 3}},
-    {"id": "rdi", "type": "render_item_diagnostics"}
+    {"id": "rsp", "type": "render_item_source_preview", "params": {"layer": 3}}
   ],
   "edges": [
     {"from": ["kp", "kp"], "to": ["t89", "kp"]},
@@ -134,8 +137,7 @@ std::string default_graph_json() {
     {"from": ["oe", "out"], "to": ["bi", "e"]},
     {"from": ["od", "out"], "to": ["bi", "drag"]},
     {"from": ["ob", "out"], "to": ["rfl", "data"]},
-    {"from": ["oe", "out"], "to": ["rel", "data"]},
-    {"from": ["od", "out"], "to": ["rdi", "data"]}
+    {"from": ["oe", "out"], "to": ["rel", "data"]}
   ],
   "outputs": {}
 })JSON";
@@ -500,17 +502,33 @@ struct ServerApp::Impl {
                         bool changed = false;
                         {
                             std::lock_guard<std::mutex> g(st.m);
+                            // 告警集合参与变化判定(否则"图没变但告警变了"不广播)
+                            json wj = json::array();
+                            for (const auto& w : pipeline->warnings())
+                                wj.push_back({{"code", w.code}, {"node", w.node},
+                                              {"port", w.port}, {"msg", w.msg}});
+                            for (const auto& w : st.render_warnings)
+                                wj.push_back(w);
+                            std::string wjs = wj.dump();
                             changed = (st.plan_slow_path != slow) ||
                                       (st.plan_notice_count != pcount) ||
-                                      (st.plan_degenerate != degen);
+                                      (st.plan_degenerate != degen) ||
+                                      (st.plan_warnings_json != wjs);
                             st.plan_slow_path = slow;
                             st.plan_notice_count = pcount;
                             st.plan_degenerate = degen;
+                            st.plan_warnings_json = wjs;
+                            st.plan_warnings = wj;
                         }
                         if (changed) {
                             json m{{"type", "plan_status"}, {"slow_path", slow},
                                    {"count", pcount},
-                                   {"degenerate_injection", degen}};
+                                   {"degenerate_injection", degen},
+                                   {"warnings", st.plan_warnings}};
+                            {
+                                std::lock_guard<std::mutex> g(st.m);
+                                st.plan_status_json = m.dump();
+                            }
                             broadcast_text(m.dump());
                         }
                         if (degen)
@@ -518,6 +536,12 @@ struct ServerApp::Impl {
                                 "注入节点生效且 count>1:所有粒子初条件相同(完全重合);"
                                 "要撒多粒子请删除注入节点后重新应用图",
                                 (nlohmann::json{{"count", pcount}}));
+                        for (const auto& w : pipeline->warnings()) {
+                            if (w.code == "degenerate_injection") continue;  // 上面已单独记
+                            MFL("plan", "warning", Warn, w.msg,
+                                (nlohmann::json{{"code", w.code}, {"node", w.node},
+                                                {"port", w.port}}));
+                        }
                         // 计划变更 → 全量重生:发射器/作用半径可能已换,
                         // 旧位置粒子(如 r=90)会被新 max_range 判死,
                         // 只重生死亡粒子救不回整批
@@ -594,7 +618,9 @@ struct ServerApp::Impl {
             if (pipeline->b_table.has_data()) pipeline->step_frame();
 
             // 4) 广播(网络帧率)——仿真线程零 Python(红线)
-            if (frame_count % interval == 0) {
+            // 编码器节点现在**真正生效**:计划里没有 encode 算子就不发粒子帧
+            // (以前 C++ 无条件编码,节点纯装饰,见 REFACTOR_PLAN #27)
+            if (frame_count % interval == 0 && pipeline->has_encoder()) {
                 std::vector<uint8_t> body;
                 pipeline->encode(body);
                 uint64_t ver = 0;
@@ -757,6 +783,8 @@ struct ServerApp::Impl {
                         conn.send_text(st.source_preview_json);
                     if (!st.population_json.empty())
                         conn.send_text(st.population_json);
+                    if (!st.plan_status_json.empty())
+                        conn.send_text(st.plan_status_json);
                 }
                 LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
@@ -795,15 +823,47 @@ struct ServerApp::Impl {
                             }
                         }
                         if (ok) {
+                            // 渲染绑定诊断:场线类渲染项若解析不出槽位 → 永远
+                            // 不会产出几何帧(静默空屏)。在图上传统一时就算出来,
+                            // 随 plan_status 广播给前端。
+                            json rwarn = json::array();
+                            try {
+                                auto binds = json::parse(rb_json);
+                                for (const auto& b : binds) {
+                                    std::string t = b.value("type", "");
+                                    if (t != "render_item_field_lines" &&
+                                        t != "render_item_efield_lines") continue;
+                                    std::string nid = b.value("node_id", "");
+                                    // 注意:slot 可能是 JSON null → value(...) 会抛
+                                    // type_error(曾整段被 catch 吞掉,告警静默丢失)
+                                    std::string slot;
+                                    if (b.contains("slot") && b["slot"].is_string())
+                                        slot = b["slot"].get<std::string>();
+                                    if (slot.empty()) {
+                                        rwarn.push_back({
+                                            {"code", "render_no_slot"},
+                                            {"node", nid},
+                                            {"msg", "渲染项 " + nid +
+                                             " 的数据源没有声明输出槽位:"
+                                             "不会产出几何帧(视口无场线)"}});
+                                    }
+                                }
+                            } catch (const std::exception& e) {
+                                MFL("render", "binding_parse_failed", Warn,
+                                    "渲染绑定解析失败(告警未生成)",
+                                    (nlohmann::json{{"error", e.what()}}));
+                            }
                             {
                                 std::lock_guard<std::mutex> g(st.m);
                                 st.graph_json = authoritative;
                                 st.slots = slots;
                                 st.graph_version = ver;
                                 st.render_bindings_json = rb_json;
+                                st.render_warnings = rwarn;
                                 st.geom_cache.clear();  // 图变了,旧几何帧作废(新烘焙重产)
                                 st.source_preview_json.clear();  // 旧预览同理作废
                                 st.population_json.clear();      // 种群读数随图作废
+                                st.plan_status_json.clear();     // 旧计划状态随图作废
                                 if (pipeline) pipeline->reset_sim_time();  // 换图 → t 归零
                                 if (plan_ok) {
                                     st.particle_plan_json = plan_json;

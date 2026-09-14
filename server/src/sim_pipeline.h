@@ -64,6 +64,12 @@ public:
     // 注入生效且数量 >1:所有粒子初条件相同 → 完全重合(仅告警,不改变行为)
     bool degenerate_injection() const { return degenerate_injection_; }
 
+    // 计划含输出编码器:无编码器 = 不发送粒子帧(节点因此真正生效)
+    bool has_encoder() const { return has_encoder_; }
+
+    // 编译期诊断(含本管线追加的运行期项,如"注入+count>1 退化")
+    const std::vector<PlanWarning>& warnings() const { return warnings_; }
+
     // 解析后的真实种群(聚合结果;供 UI 读数 —— 画布上的链/接线只是表达,
     // 实际生效的是这个列表)
     struct PopulationEntry {
@@ -100,6 +106,8 @@ private:
     std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
     int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
     bool degenerate_injection_ = false;        // 注入 + count>1 → 粒子全重合
+    bool has_encoder_ = false;                 // 计划含编码器算子
+    std::vector<PlanWarning> warnings_;        // 编译期 + 运行期诊断
     std::vector<PopulationEntry> population_;  // 解析后的种群(UI 读数)
     double population_weight_ = 0.0;           // Σweight
     double sim_time_ = 0.0;                    // 仿真时间累积(s)

@@ -23,6 +23,10 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     }
     plan = p;
     max_range = 90.0;
+    warnings_ = p.warnings;   // 编译期诊断(含 step_no_b / no_encoder …)
+    has_encoder_ = false;
+    for (const auto& op : plan.ops)
+        if (op.kind == OpKind::Encode) has_encoder_ = true;
     for (const auto& op : plan.ops) {
         if (op.kind == OpKind::Step && op.step.max_range > max_range)
             max_range = op.step.max_range;
@@ -79,6 +83,12 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     // → N 个粒子精确重合,视觉上仍是 1 个(用户实测踩到过)。此处只标记,
     // 由上层写日志/广播 plan_status 告警。
     degenerate_injection_ = has_injection_ && plan_count_ > 1;
+    if (degenerate_injection_) {
+        warnings_.push_back(PlanWarning{
+            "degenerate_injection", "", "",
+            "注入节点生效且 count>1:所有粒子初条件相同(完全重合);"
+            "要撒多粒子请删除注入节点后重新应用图"});
+    }
     return true;
 }
 

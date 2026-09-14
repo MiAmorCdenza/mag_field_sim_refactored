@@ -28,7 +28,17 @@ window.renderRegistry = (function () {
     // 图内渲染节点 → 渲染项实例(节点 id 唯一)
     function instantiate(nodeId, templateId, params) {
         const tpl = templates.get(templateId);
-        if (!tpl) return null;
+        if (!tpl) {
+            // 没有对应实现(如 render_item_diagnostics 尚未实现):
+            // 必须显式告警,否则用户加了节点却什么都没发生
+            const msg = `渲染项 ${nodeId}:没有实现模板 "${templateId}"` +
+                        `(节点已忽略;可用内联代码或 items/*.js 插件实现)`;
+            console.warn("[renderRegistry]", msg);
+            window.uiLog && window.uiLog("warn", "render_item_missing", msg,
+                                         { node: nodeId, template: templateId });
+            window.toast && window.toast("⚠ " + msg);
+            return null;
+        }
         if (instances.has(nodeId)) {
             try { window.renderHost.unregisterItem(nodeId); } catch (e) { /* ignore */ }
         }

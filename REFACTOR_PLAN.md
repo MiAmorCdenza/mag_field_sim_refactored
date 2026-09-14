@@ -596,3 +596,22 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
       测试夹具);新增回归 `test_engine_smoke.py::test_explicit_order_and_legacy_edges`
     - 判读工具:`tests/audit_wiring.py` 现在可直接看出"删旧链边零影响""改
       order 即改顺序"
+29. **真依赖必须自带诊断(#27 的 ②/③,已落地)**。静默失败是最贵的坑:
+    实测"删掉积分器的 b 数据线 → 粒子直线飞行、无任何提示";"删掉场线
+    data 线 → 视口空场线、无提示"。现在**编译期诊断随计划上报**:
+    - 引擎 `particle_plan()` 返回 `warnings[]`(code/node/port/msg):
+      `step_no_b`(步进无 B 表)/ `step_slot_unresolved`(场接在未声明槽位的
+      节点上)/ `no_encoder` / `no_emitter`;`render_bindings()` 每条绑定附带
+      **解析后的 slot**(服务器据此判 `render_no_slot`,不再各自维护反查表)
+    - C++ `Plan.warnings` → `SimPipeline::warnings()`(追加运行期项,如
+      degenerate_injection)→ `plan_status.warnings` 广播(**参与变化判定**)
+      + 日志 `plan.warning`;**plan_status 也缓存重放**(新连接可见)
+    - 前端:toast + HUD「⚠ 计划告警 N 条」+ **画布相关节点红框与原因角标**
+      (editor.onPlanWarnings)
+    - **编码器节点因此真正生效**:计划无 encode 算子 → 不发送粒子帧(实测
+      删除编码器后 5 秒 0 帧);未实现的渲染项(`diagnostics`)在实例化时
+      显式告警,并从默认图/预设/内嵌默认图中移除
+    - 坑记:JSON `null` 用 `value("slot","")` 会抛 type_error —— 曾把整段
+      诊断包在 `catch(...){}` 里静默吞掉,告警全部丢失。判空要用
+      `contains() && is_string()`(同 plan_compiler 的 `slot_str`),catch 里
+      也必须写日志

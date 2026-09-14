@@ -127,6 +127,16 @@ inline bool plan_from_json(const nlohmann::json& doc, Plan& out, std::string& er
         p.ops.push_back(std::move(op));
     }
     p.slow_path = doc.value("slow_path", false);
+    // 编译期诊断(静默失败可见化:步进无 B 表 / 无编码器 / 无发射器…)
+    p.warnings.clear();
+    for (const auto& w : doc.value("warnings", nlohmann::json::array())) {
+        PlanWarning pw;
+        pw.code = w.value("code", "");
+        pw.node = w.value("node", "");
+        pw.port = w.value("port", "");
+        pw.msg = w.value("msg", "");
+        if (!pw.msg.empty()) p.warnings.push_back(std::move(pw));
+    }
     out = std::move(p);
     return true;
 }

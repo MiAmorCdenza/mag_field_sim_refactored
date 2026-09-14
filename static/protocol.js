@@ -48,6 +48,8 @@ window.protocol = (function () {
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
         }
+        const nw = (s.warnings || []).length;
+        if (nw) bits.push(`⚠ 计划告警 ${nw} 条(见画布红框节点)`);
         const pop = s.population;
         if (pop && pop.count > 0) {
             bits.push(`种群 ${pop.count} 种${pop.count > 1 ? "(图级声明)" : ""}`);
@@ -200,6 +202,17 @@ window.protocol = (function () {
         } else if (m.type === "plan_status") {
             simStats.plan = m;
             if (m.slow_path) window.toast("⚠ 粒子计划含未知算子:慢路径(slow_path)");
+            // 计划诊断(编译期 + 运行期):静默失败必须让用户看见
+            // (实测踩过:删掉积分器的 b 数据线 → 无磁场、无任何提示)
+            const warns = m.warnings || [];
+            simStats.warnings = warns;
+            if (warns.length) {
+                const first = warns[0].msg || warns[0].code;
+                window.toast(`⚠ 计划告警 ${warns.length} 条:${first}`);
+                window.uiLog("warn", "plan_warning", first, { count: warns.length });
+            }
+            window.editor && window.editor.onPlanWarnings &&
+                window.editor.onPlanWarnings(warns);
             // 注入节点生效且 count>1:所有粒子初条件相同 → 精确重合(看起来仍
             // 是 1 个粒子)。必须显式告警,否则"改了 count 没变化"极易误判。
             if (m.degenerate_injection) {
