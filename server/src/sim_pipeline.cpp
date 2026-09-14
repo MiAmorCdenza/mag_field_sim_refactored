@@ -26,9 +26,13 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     warnings_ = p.warnings;   // 编译期诊断(含 step_no_b / no_encoder …)
     has_encoder_ = false;
     has_step_op_ = false;
+    has_respawn_ = false;          // ⚠ 必须复位:否则旧计划的标记会残留
+    dead_ratio_ = 0.0;
+    runtime_decay_warned_ = false;  // (warnings_ 已在上面整体重建)
     for (const auto& op : plan.ops) {
         if (op.kind == OpKind::Encode) has_encoder_ = true;
         if (op.kind == OpKind::Step) has_step_op_ = true;
+        if (op.kind == OpKind::Respawn) has_respawn_ = true;   // 持续创生(#35)
     }
     for (const auto& op : plan.ops) {
         if (op.kind == OpKind::Step && op.step.max_range > max_range)
@@ -94,6 +98,14 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
             "degenerate_injection", "", "",
             "注入节点生效且 count>1:所有粒子初条件相同(完全重合);"
             "要撒多粒子请删除注入节点后重新应用图"});
+    }
+    if (!has_respawn_ && plan_count_ > 0) {
+        // 一次性播撒:粒子死亡后不会重生,种群会衰减 —— 提前说清(运行期
+        // 死伤过半还会再报一次 population_decaying)
+        warnings_.push_back(PlanWarning{
+            "respawn_off", "", "",
+            "发射器关闭了「持续创生」:粒子沉降/越界后不会重生,种群会逐渐衰减"
+            "(想要稳态种群请打开 respawn)"});
     }
     return true;
 }
@@ -169,6 +181,22 @@ void SimPipeline::step_frame() {
             adv->step(particles, in);
             sim_time_ += op.step.dt;   // 名义推进(内核内部细分不减总时长)
         }
+    }
+    // 持续创生(#35):计划含 respawn 算子 → 逐帧重生死亡粒子(沉降 status=1 /
+    // 越界 status=2),种群维持稳态。放在所有步进之后,与算子 order 无关。
+    if (has_respawn_) {
+        respawn();
+        dead_ratio_ = 0.0;
+    } else if (particles.count > 0) {
+        // 没有重生算子:统计死亡率,供 population_decaying 告警(否则用户只会
+        // 看到粒子一个个消失却不知道为什么)
+        size_t dead = 0;
+        for (size_t i = 0; i < particles.count; ++i) {
+            const int s = particles.status[i];
+            if (s == 1 || s == 2 || particles.id[i] == 0) ++dead;
+        }
+        dead_ratio_ = static_cast<double>(dead) /
+                      static_cast<double>(particles.count);
     }
 }
 

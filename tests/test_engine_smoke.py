@@ -290,8 +290,10 @@ def test_particle_domain():
     g.load_json(doc)
     plan = g.particle_plan()
     kinds = [o["kind"] for o in plan["ops"]]
-    assert kinds == ["emitter", "step", "step", "encode"], kinds
-    assert plan["slow_path"] is False and plan["count"] == 4
+    # respawn(#35 持续创生)默认开启 → 出现在所有步进之后
+    assert kinds == ["emitter", "step", "step", "respawn", "encode"], kinds
+    # 注意:plan["count"] = **算子个数**(不是粒子数;粒子数在发射器算子里)
+    assert plan["slow_path"] is False and plan["count"] == 5
     assert plan["ops"][0]["params"]["v_base"] == 500.0
     assert plan["ops"][1]["kernel"] == "boris"
     assert plan["ops"][1]["slots"]["b"] == "B"
@@ -304,7 +306,7 @@ def test_particle_domain():
     try:
         plan2 = g.particle_plan()
         assert plan2["slow_path"] is True
-        assert plan2["count"] == 3  # 未知类型被跳过
+        assert plan2["count"] == 4  # 未知类型被跳过(3 个已知算子 + respawn)
     finally:
         Graph._PARTICLE_OP_KINDS["output_encoder"] = saved
     print("✓ 未知粒子域类型 → slow_path 标志")
@@ -513,7 +515,7 @@ def test_explicit_order_and_legacy_edges():
     assert all("无输入端口 prev" in s["reason"] or "无输出端口 next" in s["reason"]
                for s in g.skipped_edges), g.skipped_edges
     kinds = [o["kind"] for o in g.particle_plan()["ops"]]
-    assert kinds == ["emitter", "step", "encode"], kinds
+    assert kinds == ["emitter", "step", "respawn", "encode"], kinds
     print("✓ 旧图 prev/next 链边容错跳过(仅记录,不整图拒绝)+ 默认序正确")
 
     # (b) order 参数决定顺序:把发射器排到最后
@@ -526,18 +528,20 @@ def test_explicit_order_and_legacy_edges():
     doc["edges"] = []
     g.load_json(doc)
     plan = g.particle_plan()
-    assert [o["kind"] for o in plan["ops"]] == ["step", "encode", "emitter"], plan
-    assert [o["order"] for o in plan["ops"]] == [5, 50, 90]
+    # respawn(#35)的 order 只在算子表里排序;它的**执行**由 C++ 固定放在
+    # 所有步进之后(声明 = 要不要重生,不是执行位置)
+    assert [o["kind"] for o in plan["ops"]] == ["step", "respawn", "encode", "emitter"], plan
+    assert [o["order"] for o in plan["ops"]] == [5, 35, 50, 90]
     print("✓ 计划顺序 = order 升序(5 步进 → 50 编码 → 90 发射器)")
 
-    # (c) 默认 order(无参数)保持历史语义:发射器 → 步进 → 编码
+    # (c) 默认 order(无参数)保持历史语义:发射器 → 步进 → (重生) → 编码
     g.load_json({"version": 1, "nodes": [
         {"id": "pe", "type": "particle_emitter"},
         {"id": "bi", "type": "boris_integrator"},
         {"id": "oe", "type": "output_encoder"}], "edges": [], "outputs": {}})
     assert [o["kind"] for o in g.particle_plan()["ops"]] == \
-        ["emitter", "step", "encode"]
-    print("✓ 无 order 参数时按类型默认(10/30/40),与历史链序一致")
+        ["emitter", "step", "respawn", "encode"]
+    print("✓ 无 order 参数时按类型默认(10/30/35/40),与历史链序一致")
 
 
 def test_plan_warnings():
@@ -735,6 +739,32 @@ def test_render_channel_contract():
     b = {x["type"]: x for x in g.render_bindings()}["render_item_particles"]
     assert b["has_data"] is True and b["channels"] == ["particles"]
     print("✓ 接线后 has_data=True(接线决定订阅)")
+
+
+def test_respawn_op():
+    """#35 持续创生:发射器 respawn=true → 计划里出现 respawn 算子
+    (执行时机由 C++ 决定:所有步进之后),false → 不出现。"""
+    import json
+    from engine.registry import default_registry
+    reg = default_registry()
+    base = {"version": 1, "nodes": [
+        {"id": "pe", "type": "particle_emitter", "params": {"count": 10}},
+        {"id": "bi", "type": "boris_integrator"},
+        {"id": "enc", "type": "output_encoder"},
+    ], "edges": [], "outputs": {}}
+    g = Graph(reg, Lattice.from_json({"preset": "tiny"}))
+    g.load_json(base)
+    kinds = [o["kind"] for o in g.particle_plan()["ops"]]
+    assert "respawn" in kinds, kinds
+    assert kinds.index("respawn") > kinds.index("step"), kinds   # 步进之后
+    print("✓ 默认 respawn=true → 计划含 respawn 算子(在 step 之后)")
+
+    off = json.loads(json.dumps(base))
+    off["nodes"][0]["params"]["respawn"] = False
+    g.load_json(off)
+    kinds = [o["kind"] for o in g.particle_plan()["ops"]]
+    assert "respawn" not in kinds, kinds
+    print("✓ respawn=false → 计划不含 respawn 算子(一次性播撒)")
 
 
 if __name__ == "__main__":

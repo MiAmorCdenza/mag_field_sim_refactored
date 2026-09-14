@@ -1,6 +1,7 @@
 // 仿真管线:按执行计划(Plan)驱动 —— 发射/步进/编码全部来自粒子域子图。
 // 无粒子域节点时使用默认后备计划(行为与 legacy 硬编码管线位级一致)。
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -69,9 +70,35 @@ public:
 
     // 计划含步进算子:无步进 = 粒子冻结在生成点(界面会摆出隐式节点说明)
     bool has_step_op() const { return has_step_op_; }
+    // 持续创生(#35):计划含重生算子(发射器 respawn=true)
+    bool has_respawn() const { return has_respawn_; }
+    // 无重生时的实时死亡率(0..1;用于 population_decaying 告警)
+    double dead_ratio() const { return dead_ratio_; }
 
     // 编译期诊断(含本管线追加的运行期项,如"注入+count>1 退化")
     const std::vector<PlanWarning>& warnings() const { return warnings_; }
+
+    // 运行期诊断同步(#35):无重生且死伤过半 → population_decaying
+    // (由服务器每帧询问;返回是否发生了变化,便于只在变化时广播)
+    bool refresh_runtime_warnings() {
+        const bool want = !has_respawn_ && dead_ratio_ > 0.5 &&
+                          plan_count_ > 0;
+        if (want == runtime_decay_warned_) return false;
+        runtime_decay_warned_ = want;
+        auto it = std::find_if(warnings_.begin(), warnings_.end(),
+                               [](const PlanWarning& w) {
+                                   return w.code == "population_decaying";
+                               });
+        if (want && it == warnings_.end()) {
+            warnings_.push_back(PlanWarning{
+                "population_decaying", "", "",
+                "超过一半粒子已死亡且未开启持续创生:种群正在衰减"
+                "(打开发射器 respawn 可维持稳态)"});
+        } else if (!want && it != warnings_.end()) {
+            warnings_.erase(it);
+        }
+        return true;
+    }
 
     // 解析后的真实种群(聚合结果;供 UI 读数 —— 画布上的链/接线只是表达,
     // 实际生效的是这个列表)
@@ -111,6 +138,9 @@ private:
     bool degenerate_injection_ = false;        // 注入 + count>1 → 粒子全重合
     bool has_encoder_ = false;                 // 计划含编码器算子
     bool has_step_op_ = false;                 // 计划含步进算子
+    bool has_respawn_ = false;                 // 计划含重生算子(持续创生 #35)
+    double dead_ratio_ = 0.0;                  // 最近一帧死亡率(无重生时统计)
+    bool runtime_decay_warned_ = false;        // population_decaying 已挂出
     std::vector<PlanWarning> warnings_;        // 编译期 + 运行期诊断
     std::vector<PopulationEntry> population_;  // 解析后的种群(UI 读数)
     double population_weight_ = 0.0;           // Σweight

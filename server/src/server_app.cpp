@@ -555,6 +555,7 @@ struct ServerApp::Impl {
                             json m{{"type", "plan_status"}, {"slow_path", slow},
                                    {"count", pcount},
                                    {"degenerate_injection", degen},
+                                   {"respawn", pipeline->has_respawn()},
                                    {"warnings", st.plan_warnings},
                                    {"implicit", st.plan_implicit}};
                             {
@@ -651,6 +652,34 @@ struct ServerApp::Impl {
 
             // 3) 物理步进(首次烘焙完成前不积分:空表步进无物理意义)
             if (pipeline->b_table.has_data()) pipeline->step_frame();
+
+            // 3b) 运行期诊断(#35):无重生且死伤过半 → population_decaying。
+            //     计划状态平时只在"计划变化"时广播,这里为运行期变化补一条
+            //     (只在告警状态翻转时触发,不是每帧)。
+            if (pipeline->refresh_runtime_warnings()) {
+                json wj = json::array();
+                for (const auto& w : pipeline->warnings())
+                    wj.push_back({{"code", w.code}, {"node", w.node},
+                                  {"port", w.port}, {"msg", w.msg}});
+                json status;
+                {
+                    std::lock_guard<std::mutex> g(st.m);
+                    for (const auto& w : st.render_warnings) wj.push_back(w);
+                    st.plan_warnings_json = wj.dump();
+                    st.plan_warnings = wj;
+                    status = json{{"type", "plan_status"},
+                                  {"slow_path", st.plan_slow_path},
+                                  {"count", st.plan_notice_count},
+                                  {"degenerate_injection", st.plan_degenerate},
+                                  {"respawn", pipeline->has_respawn()},
+                                  {"warnings", st.plan_warnings},
+                                  {"implicit", st.plan_implicit}};
+                    st.plan_status_json = status.dump();
+                }
+                MFL("plan", "runtime_warning", Warn, "运行期计划诊断变化",
+                    (nlohmann::json{{"dead_ratio", pipeline->dead_ratio()}}));
+                broadcast_text(status.dump());
+            }
 
             // 4) 广播(网络帧率)——仿真线程零 Python(红线)
             // 编码器节点现在**真正生效**:计划里没有 encode 算子就不发粒子帧
@@ -1107,7 +1136,27 @@ struct ServerApp::Impl {
         });
 
         MFL("server", "listening", Info, "服务启动", (nlohmann::json{{"host", cfg.host}, {"port", cfg.port}, {"ws", "ws://.../ws"}}));
-        app.bindaddr(cfg.host).port(cfg.port).run();
+        // 主循环包一层诊断:实测遇到过"服务器静默退出(退出码 1,无崩溃记录,
+        // 日志戛然而止)"—— 异常逃逸出 Crow 会让 app.run() 直接返回,而
+        // main 只看到返回值。这里至少让它留下原因(是异常、还是主循环自己退出)。
+        try {
+            app.bindaddr(cfg.host).port(cfg.port).run();
+            MFL("server", "run_returned", Warn,
+                "HTTP/WS 主循环自行返回(非正常关闭路径):进程即将退出",
+                nlohmann::json::object());
+        } catch (const std::exception& e) {
+            MFL("server", "run_exception", Fatal,
+                "主循环抛出 C++ 异常,服务器退出",
+                (nlohmann::json{{"what", e.what()}}));
+            st.running = false;
+            return 1;
+        } catch (...) {
+            MFL("server", "run_exception", Fatal,
+                "主循环抛出未知异常,服务器退出",
+                nlohmann::json::object());
+            st.running = false;
+            return 1;
+        }
 
         // 关闭
         {

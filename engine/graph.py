@@ -500,7 +500,8 @@ class Graph:
     }
     # 各算子默认执行序(节点 order 参数未给出时用;保持历史链序语义)
     _PARTICLE_OP_ORDER = {
-        "emitter": 10, "species": 20, "injection": 25, "step": 30, "encode": 40,
+        "emitter": 10, "species": 20, "injection": 25, "step": 30,
+        "respawn": 35, "encode": 40,
     }
 
     def particle_plan(self):
@@ -582,6 +583,17 @@ class Graph:
                 params.setdefault("order", sp["order"])
                 ops.append({"kind": "species", "node": sp["node"], "type": "",
                             "params": params, "inputs": {}, "order": sp["order"]})
+        # ---- 持续创生(#35):发射器 respawn=true → 逐帧重生死亡粒子 ----
+        # 执行时机由 C++ 决定(所有步进之后),这里只声明"要不要重生";
+        # 关掉它的图会衰减(损失锥沉降/越界),运行期由 population_decaying 告警提示
+        for emit_id in emitter_ids:
+            node = self.nodes.get(emit_id)
+            if node is None:
+                continue
+            if bool(node.params.get("respawn", True)):
+                ops.append({"kind": "respawn", "node": emit_id, "type": "",
+                            "params": {}, "inputs": {},
+                            "order": self._PARTICLE_OP_ORDER["respawn"]})
         # 显式顺序:order 升序,同序按节点 id 稳定排序(可复现);
         # 同节点的多行物种保持行序(stable sort + 插入序)
         for op in ops:

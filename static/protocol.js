@@ -49,6 +49,8 @@ window.protocol = (function () {
         if (plan.count) {
             bits.push(plan.slow_path ? `计划粒子 ${plan.count} (slow_path)`
                                      : `计划粒子 ${plan.count}`);
+            // 持续创生(#35):关掉会衰减,直接写在 HUD 上省得用户猜
+            if (plan.respawn === false) bits.push("无重生(会衰减)");
         }
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
@@ -157,15 +159,45 @@ window.protocol = (function () {
                         new Uint8Array(e.data, 4, hlen)));
                     // 渲染项订阅约定:粒子帧 = "particles";
                     // 几何帧 = "geometry:" + header.kind(field_lines/efield_lines/…)
-                    const kind = header.type === "s" ? "particles"
-                        : "geometry:" + (header.kind || header.type || "unknown");
-                    if (header.type === "s") noteFrame(header);
+                    if (header.type === "s") {
+                        // 信箱式合并(#35):粒子帧只画最新一帧。
+                        // 大粒子数(6000×21B≈126KB/帧)时客户端处理不过来,
+                        // WS 队列会积压旧帧 —— 表现为"服务器早换了图,页面还
+                        // 在放旧粒子数",而且拖尾会被旧帧续写。这里只保留最后
+                        // 一帧,在 rAF 里消费,队列永远不涨。
+                        pendingFrame = { buf: e.data, header };
+                        if (!drainScheduled) {
+                            drainScheduled = true;
+                            (window.requestAnimationFrame || setTimeout)(
+                                drainParticles);
+                        }
+                        return;
+                    }
+                    const kind = "geometry:" +
+                        (header.kind || header.type || "unknown");
                     window.renderHost && window.renderHost.dispatch(kind, e.data, header);
                 } catch (err) {
                     window.uiLog && window.uiLog("error", "frame_parse", String(err));
                 }
             }
         };
+    }
+
+    // 信箱:drainScheduled 期间到达的粒子帧覆盖 pendingFrame(丢旧留新)
+    let pendingFrame = null;
+    let drainScheduled = false;
+    function drainParticles() {
+        drainScheduled = false;
+        const f = pendingFrame;
+        pendingFrame = null;
+        if (!f) return;
+        noteFrame(f.header);
+        try {
+            window.renderHost && window.renderHost.dispatch(
+                "particles", f.buf, f.header);
+        } catch (err) {
+            window.uiLog && window.uiLog("error", "frame_dispatch", String(err));
+        }
     }
 
     function handleText(m) {
