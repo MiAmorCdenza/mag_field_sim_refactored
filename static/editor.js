@@ -23,30 +23,10 @@ window.editor = (function () {
     }
     const canvas = new LGraphCanvas(canvasEl, graph);
     canvas.background_image = "";
-    // 左下角统计覆盖层:LiteGraph 默认显示 graph.globaltime/iteration/fps,
-    // 这些属于它自己的执行循环(本项目不跑 runStep → 恒为 0,易误判"卡死")。
-    // 改为显示真实仿真状态:仿真时间 / 计划粒子数 / 帧率 + 图结构。
-    canvas.renderInfo = function (ctx) {
-        const s = window.simStats || {};
-        const plan = s.plan || {};
-        ctx.save();
-        ctx.font = "11px Consolas, monospace";
-        ctx.textAlign = "left";
-        ctx.fillStyle = "#8fa";
-        ctx.fillText(`t = ${(s.t || 0).toFixed(2)} s`, 10, canvasEl.height - 72);
-        ctx.fillText(`n = ${s.n | 0}`, 10, canvasEl.height - 59);
-        ctx.fillStyle = "#9ab";
-        ctx.fillText(`${(s.fps || 0).toFixed(1)} fps`, 10, canvasEl.height - 46);
-        ctx.fillStyle = "#889";
-        let y = canvasEl.height - 33;
-        ctx.fillText(`N ${graph._nodes.length}  E ${Object.keys(graph.links || {}).length}`, 10, y);
-        if (plan.count) {
-            ctx.fillStyle = plan.slow_path ? "#fc6" : "#8fa";
-            ctx.fillText(`计划粒子 ${plan.count}${plan.slow_path ? " (slow_path)" : ""}`,
-                         10, canvasEl.height - 20);
-        }
-        ctx.restore();
-    };
+    // LiteGraph 默认在左下角画 graph.globaltime/iteration/fps —— 那是它自己
+    // runStep 执行循环的统计,本项目从不调用 → 恒为 0,极易误判"仿真卡死"。
+    // 实时统计改在 DOM 覆盖层 #sim-hud(protocol.js 定时刷新),此处静默。
+    canvas.renderInfo = function () {};
     window.addEventListener("resize", () => {
         canvasEl.width = canvasEl.clientWidth;
         canvasEl.height = canvasEl.clientHeight;

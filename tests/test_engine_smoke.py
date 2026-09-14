@@ -11,6 +11,7 @@ import numpy as np
 
 from engine import (Lattice, Field, Port, Param, Node, register_node,
                     Registry, Graph, GraphError)
+from engine.lattice import stretched_axis
 
 
 # ---------- 用程序化注册定义测试节点(不走插件文件) ----------
@@ -442,6 +443,32 @@ def test_particle_injection():
     print("✓ 计划含 injection 算子 + count=1 + init 指向注入节点")
 
 
+def test_lattice_axes_full_span():
+    """点阵不变量:每个预设轴都必须覆盖完整 [vmin, vmax] 且严格升序。
+
+    回归防线 —— stretched_axis 的外侧点数分配曾把某一侧分成 1 个点,
+    而 linspace(0,1,1) 只给出 t=0(与内区端点重合),unique 去重后
+    整段外侧消失:tiny 的 y/z 轴只剩 [-3,12] → 表域半宽 3 Re →
+    场线追踪 rlim 被封到 2.94 Re(现象:偶极子场线像被关在球里)。
+    """
+    from engine.lattice import AXIS_PRESETS, LATTICE_PRESETS
+    for name, axes in LATTICE_PRESETS.items():
+        for ax in ("x", "y", "z"):
+            p = AXIS_PRESETS[axes[ax]]
+            arr = stretched_axis(**p)
+            assert arr.size >= 2, (name, ax, arr.size)
+            assert arr[0] == p["vmin"], f"{name}.{ax} 缺负外侧: {arr[0]} != {p['vmin']}"
+            assert arr[-1] == p["vmax"], f"{name}.{ax} 缺正外侧: {arr[-1]} != {p['vmax']}"
+            assert np.all(np.diff(arr) > 0.0), f"{name}.{ax} 非严格升序"
+            # 中心密集区必须在
+            inner = arr[(arr >= -p["inner_halfwidth"]) & (arr <= p["inner_halfwidth"])]
+            assert inner.size >= 3, f"{name}.{ax} 缺少中心密集区"
+            # 表域半宽(rlim 封顶依据)必须与预设范围一致
+            dom_half = min(-arr[0], arr[-1])
+            assert dom_half >= min(-p["vmin"], p["vmax"]) - 1e-9, (name, ax, dom_half)
+    print("✓ 点阵不变量:所有预设轴覆盖完整 [vmin,vmax](含负外侧),域半宽正确")
+
+
 if __name__ == "__main__":
     test_evaluate()
     test_cache_invalidation()
@@ -456,4 +483,5 @@ if __name__ == "__main__":
     test_particle_domain()
     test_particle_species()
     test_particle_injection()
+    test_lattice_axes_full_span()
     print("\n全部冒烟测试通过 ✅")

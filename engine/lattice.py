@@ -37,6 +37,12 @@ def stretched_axis(vmin, vmax, vcenter, inner_halfwidth, inner_dx,
         if span == 0.0:
             return np.array([])
         # 负 span(左外侧,start>end)同样适用:start + span*t^p 单调下降
+        # n==1 必须落在**远端**:linspace(0,1,1) 只有 t=0,会退化成与内区
+        # 端点重合的一点,unique 去重后整段外侧消失。tiny 的 y/z 轴曾因此
+        # 只剩 [-3,12] → 域界 dom_half=3 → rlim=2.94 → 场线被压成半径 3 Re
+        # 的球(外侧是开放域,现象极像"偶极子被关在球里")。
+        if n == 1:
+            return np.array([end])
         t = np.linspace(0.0, 1.0, n)
         return start + span * t ** power
 

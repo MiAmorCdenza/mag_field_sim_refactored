@@ -481,10 +481,14 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
 9. **NOMINMAX 必须在 winsock2.h 之前**(winsock2 自身包含 windows.h)
 10. **服务器启动前做端口占用预检**:Windows SO_REUSEADDR 允许双进程绑
     同端口,请求会随机落到两个实例(已踩坑,见 main.cpp)
-11. **stretched_axis 左外侧必须生成**:`_side` 对负 span(start>end)曾判
-    `span<=0` 返回空 → 所有点阵缺 x<-3/y<-3/z<-3(磁尾从没进过表),
-    并导致域界 `dom_half=3` → 场线视图被压到 3 Re;左外侧是"降序列",
-    不是删掉
+11. **stretched_axis 外侧两处退化都要防**:(a) `_side` 对负 span(start>end)
+    曾判 `span<=0` 返回空 → 所有点阵缺 x<-3/y<-3/z<-3(磁尾从没进过表),
+    左外侧是"降序列",不是删掉;(b) **某一侧只分到 1 个点时**
+    `linspace(0,1,1)` 只有 t=0 → 退化成与内区端点重合的一点,`unique`
+    去重后**整段外侧消失**(tiny 的 y/z 轴因此只剩 [-3,12],域半宽
+    dom_half=3 → rlim=2.94 → 偶极子场线像被关在半径 3 Re 的球里)。
+    n==1 必须返回**远端**。不变量测试:test_engine_smoke.py
+    `test_lattice_axes_full_span`(逐预设断言轴覆盖完整 [vmin,vmax])
 12. **默认图用 coarse 点阵**(legacy 视场,烘焙 ~12s 属"离线秒级"契约);
     tiny 留给测试预设;发射器默认 max_range=24 与域一致(域外采样
     钳到边界值,物理失真)
@@ -501,8 +505,10 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     载入时 `nd.title || 插件名`;导出只在用户改过标题时写 `title`
 16. **别用 LiteGraph 自带左下角覆盖层判断运行状态**:它画的是
     `graph.globaltime/iteration/fps`,属它自己的 `runStep` 执行循环,
-    本项目从不调用 → **恒为 0**,极易误判"卡死"。已在 editor.js 覆写
-    `canvas.renderInfo`,显示真实值(仿真时间/粒子数/WS 帧率/节点边数)
+    本项目从不调用 → **恒为 0**,极易误判"卡死"。实时统计放 **DOM 覆盖层**
+    `#sim-hud`(protocol.js 250ms 定时器刷新);`canvas.renderInfo` 置空。
+    注意**不要**用 canvas 覆盖层做实时 HUD:它只在画布重绘时更新
+    (曾因此"假实时"——截图显示 t=0 而真实值是 596 s)
 17. **仿真时间来自帧头 `t`**(server_app 每帧写 `pipeline->sim_time()`,
     名义步进累积 `Σ dt×substeps`),`reset_sim_time()` 只在 `graph.upload`
     调用 —— 调参重编译计划**不重置**,便于观察连续演化

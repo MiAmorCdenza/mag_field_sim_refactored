@@ -30,6 +30,25 @@ window.protocol = (function () {
         }
     }
 
+    // HUD 用定时器刷新:画布覆盖层只在重绘时更新(会假死),DOM 层才是实时的
+    setInterval(() => {
+        const el = document.getElementById("sim-hud");
+        if (!el) return;
+        const s = simStats;
+        const g = window.editor && window.editor.graph;
+        const plan = s.plan || {};
+        const bits = [`t = ${(s.t || 0).toFixed(2)} s`,
+                      `n = ${s.n | 0}`,
+                      `${(s.fps || 0).toFixed(1)} fps`];
+        if (g) bits.push(`N ${g._nodes.length}  E ${Object.keys(g.links || {}).length}`);
+        if (plan.count) {
+            bits.push(plan.slow_path ? `计划粒子 ${plan.count} (slow_path)`
+                                     : `计划粒子 ${plan.count}`);
+        }
+        el.innerHTML = bits.map((b, i) =>
+            `<span class="${i === 0 ? "" : "dim"}">${b}</span>`).join("\n");
+    }, 250);
+
     function wsSend(obj) {
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
     }
