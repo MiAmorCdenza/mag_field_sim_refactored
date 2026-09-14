@@ -197,6 +197,7 @@ window.editor = (function () {
                     break;
                 }
             }
+            markSpeciesNodes();   // 标注"未接线但图级生效"的物种节点
             canvas.setDirty(true, true);
             setGraphDirty(false);   // 载入(服务器图/上传成功)后视为已同步
         } catch (err) {
@@ -313,6 +314,17 @@ window.editor = (function () {
                 }));
         }
 
+        // ---- 物种读数:species 节点 / 发射器都显示**服务器解析出的真实种群** ----
+        if (spec.type === "particle_species" || spec.type === "particle_emitter" ||
+            spec.type === "particle_injection") {
+            const box = document.createElement("div");
+            box.className = "hint";
+            box.id = "pop-readout";
+            box.style.whiteSpace = "pre-wrap";
+            body.appendChild(box);
+            renderPopulationReadout();
+        }
+
         // ---- 单粒子注入:初条件读数(局部 B / 回旋半径 / 回旋周期) ----
         // 数值来自服务器 L2 预览(与积分器同一套常数),拖滑杆时实时刷新。
         if (spec.type === "particle_injection") {
@@ -358,6 +370,98 @@ window.editor = (function () {
         return [r * Math.cos(lat) * Math.cos(lon),
                 r * Math.cos(lat) * Math.sin(lon),
                 r * Math.sin(lat)];
+    }
+
+    // ---------- 物种:真实种群读数 + 画布标注 ----------
+    // 事实:物种聚合是**图级**的(服务器聚合计划里所有 particle_species 节点),
+    // prev/next 链与发射器 types 接线只是表达习惯 —— 未接线的物种照样参与
+    // 生成。因此界面上必须:(a) 显示解析后的真实种群;(b) 标注未接线的
+    // species 节点;(c) 接链中段(只含前 N 个物种)时告警。
+
+    // 从发射器 types 输入出发走 prev 链,返回链上节点 id 数组(尾 → 头)
+    function wiredSpeciesChain() {
+        const emitter = graph._nodes.find(n => n._spec &&
+            n._spec.type === "particle_emitter");
+        if (!emitter) return [];
+        const slot = emitter.inputs.findIndex(i => i.name === "types");
+        if (slot < 0 || emitter.inputs[slot].link == null) return [];
+        const chain = [];
+        const link = graph.links[emitter.inputs[slot].link];
+        if (!link) return [];
+        let node = graph.getNodeById(link.origin_id);
+        const seen = new Set();
+        while (node && !seen.has(node.id)) {
+            seen.add(node.id);
+            if (!node._spec || node._spec.type !== "particle_species") break;
+            chain.push(node);
+            const ps = node.inputs.findIndex(i => i.name === "prev");
+            if (ps < 0 || node.inputs[ps].link == null) break;
+            const l2 = graph.links[node.inputs[ps].link];
+            node = l2 ? graph.getNodeById(l2.origin_id) : null;
+        }
+        return chain;
+    }
+
+    // 标注:未接线的 species 节点(青蓝色边)→ "图级生效"
+    function markSpeciesNodes() {
+        const chain = wiredSpeciesChain();
+        const inChain = new Set(chain.map(n => n.id));
+        const species = graph._nodes.filter(n => n._spec &&
+            n._spec.type === "particle_species");
+        const chainTail = chain.length ? chain[0] : null;
+        const emitter = graph._nodes.find(n => n._spec &&
+            n._spec.type === "particle_emitter");
+        let wiredTail = null;
+        if (emitter) {
+            const slot = emitter.inputs.findIndex(i => i.name === "types");
+            if (slot >= 0 && emitter.inputs[slot].link != null) {
+                const l = graph.links[emitter.inputs[slot].link];
+                wiredTail = l ? graph.getNodeById(l.origin_id) : null;
+            }
+        }
+        for (const n of species) {
+            const unconnected = !inChain.has(n.id);
+            n.boxcolor = unconnected ? "#2ec4b6" : null;   // 青蓝 = 未接线但生效
+            n.onDrawForeground = function (ctx) {
+                if (!this.flags || this.flags.collapsed) return;
+                if (!unconnected) return;
+                ctx.save();
+                ctx.font = "10px sans-serif";
+                ctx.fillStyle = "#2ec4b6";
+                ctx.fillText("图级生效(未接线也算)", 6, this.size[1] - 6);
+                ctx.restore();
+            };
+        }
+        // 接了链中段 → 只含链前 N 个物种(静默截断)
+        if (wiredTail && chainTail && wiredTail.id !== chainTail.id) {
+            const idx = chain.findIndex(n => n.id === wiredTail.id);
+            const included = idx < 0 ? "?" : (chain.length - idx);
+            window.toast(`⚠ types 接的是链中段:只含链前 ${included} 个物种` +
+                `(链上共 ${chain.length} 个)。建议接链尾,或让服务器读数为准`);
+        }
+    }
+
+    // 属性面板读数(选中 species 节点或发射器时显示)
+    function renderPopulationReadout() {
+        const box = document.getElementById("pop-readout");
+        if (!box) return;
+        const pop = window.simStats && window.simStats.population;
+        if (!pop || !pop.species || !pop.species.length) {
+            box.textContent = "真实种群:等待服务器解析…(物种为图级声明)";
+            return;
+        }
+        const rows = pop.species.map(s =>
+            `${s.color} ${s.name}  w=${s.weight}  ${(s.share * 100).toFixed(1)}%` +
+            `  q=${s.q} m=${s.mass}`);
+        box.textContent = `真实种群(服务器聚合,共 ${pop.count} 种,` +
+            `权重合计 ${pop.total_weight}):\n` + rows.join("\n") +
+            (pop.count > 1 ? "\n⚠ 图级声明:未接线的 particle_species 节点同样参与生成"
+                           : "");
+    }
+
+    function onPopulation() {
+        markSpeciesNodes();
+        renderPopulationReadout();
     }
 
     // 单粒子初条件读数面板(与 3D 预览同源:服务器 L2 预览消息)
@@ -706,6 +810,7 @@ registerRenderItem({
     }
 
     return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview,
+             onPopulation, markSpeciesNodes,
              markGraphApplied: () => setGraphDirty(false),
              isGraphDirty: () => graphDirty };
 })();

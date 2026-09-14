@@ -29,11 +29,27 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     }
     // 物种聚合:图中声明式 particle_species 节点 → 发射器类型列表
     // (一个节点 = 一个物种;enabled=false 不参与生成)
+    // ⚠ 这里是**图级**聚合:计划里所有 Species 算子都算数,与画布上是否
+    // 链式接线无关(实测:未接线的物种节点照样参与生成)。UI 读数直接取
+    // 本结果(population_),不再让用户去猜接线语义。
     species_types_.clear();
+    population_.clear();
+    population_weight_ = 0.0;
     for (const auto& op : plan.ops) {
-        if (op.kind == OpKind::Species && op.species.enabled)
-            species_types_.push_back(op.species.type);
+        if (op.kind != OpKind::Species || !op.species.enabled) continue;
+        species_types_.push_back(op.species.type);
+        PopulationEntry e;
+        e.name = op.species.name.empty() ? op.node_id : op.species.name;
+        e.q = op.species.type.q;
+        e.mass = op.species.type.mass;
+        e.v_mult = op.species.type.v_mult;
+        e.weight = op.species.type.weight;
+        e.color = op.species.type.color;
+        population_weight_ += e.weight;
+        population_.push_back(std::move(e));
     }
+    for (auto& e : population_)
+        e.share = (population_weight_ > 1e-12) ? e.weight / population_weight_ : 0.0;
     // 图内发射器节点(node_id != "__default")→ 重建发射器并接管;
     // 后备计划的发射器保持由服务器 st.emitter 驱动(legacy 兼容)
     has_emitter_op = false;

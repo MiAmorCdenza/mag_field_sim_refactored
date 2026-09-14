@@ -56,6 +56,7 @@ struct SharedState {
     bool plan_degenerate = false;    // 注入 + count>1(粒子全重合,已告警)
     std::map<std::string, std::string> geom_cache;  // 渲染节点 id → 最近几何帧(新连接重放)
     std::string source_preview_json;                // 最近 L2 初条件预览(新连接重放)
+    std::string population_json;                    // 最近解析种群(新连接重放)
     EmitterConfig emitter;
     std::string bake_error;
     bool bake_failed = false;
@@ -265,6 +266,34 @@ struct ServerApp::Impl {
             std::lock_guard<std::mutex> g(st.m);
             st.source_preview_json = j.dump();
             payload = st.source_preview_json;
+        }
+        broadcast_text(payload);
+    }
+
+    // 解析后的种群广播(UI 读数):画布上的链/接线只是表达,实际生效的是
+    // 服务器聚合出的这个列表 —— 未接线的物种节点同样参与生成,必须在界面上
+    // 说清楚,否则"我接了一个物种,怎么还有别的粒子"无法自查。
+    void broadcast_population() {
+        if (!pipeline) return;
+        json arr = json::array();
+        for (const auto& e : pipeline->population()) {
+            char hex[8];
+            std::snprintf(hex, sizeof(hex), "#%06x", (unsigned)(e.color & 0xffffff));
+            arr.push_back({{"name", e.name},
+                           {"q", e.q}, {"mass", e.mass}, {"v_mult", e.v_mult},
+                           {"weight", e.weight}, {"share", e.share},
+                           {"color", hex}});
+        }
+        json j{{"type", "population"},
+               {"species", arr},
+               {"count", (int)pipeline->population().size()},
+               {"total_weight", pipeline->population_weight()},
+               {"injection", pipeline->has_injection()}};
+        std::string payload;
+        {
+            std::lock_guard<std::mutex> g(st.m);
+            st.population_json = j.dump();
+            payload = st.population_json;
         }
         broadcast_text(payload);
     }
@@ -504,6 +533,7 @@ struct ServerApp::Impl {
                         // 只重生死亡粒子救不回整批
                         pipeline->respawn_all();
                         broadcast_source_preview();   // 注入参数一改即预览
+                        broadcast_population();       // 种群读数(图级聚合结果)
                         MFL("plan", "applied", Info, "执行计划已应用",
                             (nlohmann::json{{"ops", plan.ops.size()},
                                             {"slow_path", slow},
@@ -735,6 +765,8 @@ struct ServerApp::Impl {
                     std::lock_guard<std::mutex> g2(st.m);
                     if (!st.source_preview_json.empty())
                         conn.send_text(st.source_preview_json);
+                    if (!st.population_json.empty())
+                        conn.send_text(st.population_json);
                 }
                 LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
@@ -781,6 +813,7 @@ struct ServerApp::Impl {
                                 st.render_bindings_json = rb_json;
                                 st.geom_cache.clear();  // 图变了,旧几何帧作废(新烘焙重产)
                                 st.source_preview_json.clear();  // 旧预览同理作废
+                                st.population_json.clear();      // 种群读数随图作废
                                 if (pipeline) pipeline->reset_sim_time();  // 换图 → t 归零
                                 if (plan_ok) {
                                     st.particle_plan_json = plan_json;

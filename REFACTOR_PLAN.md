@@ -561,3 +561,21 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     (graph.onNodeAdded/onNodeRemoved/onConnectionsChange → 置脏;loadGraph
     与上传成功 → 清脏)。这条踩坑实录:删了注入节点但没上传 → 服务器图里
     注入仍在 → count 调大也"没变化"
+27. **仪式性接线审计**(`tests/audit_wiring.py`,对任意图打印"编译出的真相":
+    ops 顺序/端口/slots + 渲染绑定):**节点存在 + 参数才是真语义,边只应表示
+    数据依赖**。预设实测分类 ——
+    - 数据依赖(删了行为就变):`output_slot.out → 积分器.b`
+      (→ slots.b=null → **静默无磁场**,无告警)、`output_slot.out →
+      场线渲染项.data`(→ 无几何帧)、`output_slot.slot` 参数(引擎
+      `declare_output` 自动推导槽位,文件里的 outputs blob 只是可选覆盖)
+    - 顺序锚点(非数据依赖但影响谁生效):粒子域 prev/next 链 —— 删掉后计划
+      顺序从 `…emitter→step→encode` 变为 `…step→encode→emitter`,而 C++ 侧
+      "首个 EmitterOp 生效(v1)"、多 step 按序执行 ⇒ 顺序有语义,却靠链隐式表达
+    - 纯装饰(删了什么都不变):渲染域 prev/next 链(前端按**节点类型**实例化,
+      绘制 `layer` 写死在渲染项 JS 里 → 连线改不了绘制顺序)、
+      `物种.types→发射器.types`、`注入.spec→发射器.init`(活体:删线后注入
+      仍生效 n=1 r=6.595)、`输出编码器` 节点(C++ 循环无条件 encode)、
+      `render_pipeline_start` 及其 background/fps_cap(**从未被读取**,
+      背景写死在 renderer.js,恰好等于其默认值)、`诊断点渲染项`(无 JS 实现)
+    → 后续"慢慢改"的方向:① 顺序改成显式参数(渲染 layer / 粒子 order);
+    ② 真依赖补诊断(无 B 表告警);③ 装饰项删除或接上;④ 物种表(见 #22 讨论)

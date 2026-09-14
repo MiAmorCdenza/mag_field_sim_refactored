@@ -64,6 +64,17 @@ public:
     // 注入生效且数量 >1:所有粒子初条件相同 → 完全重合(仅告警,不改变行为)
     bool degenerate_injection() const { return degenerate_injection_; }
 
+    // 解析后的真实种群(聚合结果;供 UI 读数 —— 画布上的链/接线只是表达,
+    // 实际生效的是这个列表)
+    struct PopulationEntry {
+        std::string name;
+        double q = 0.0, mass = 1.0, v_mult = 1.0, weight = 0.0;
+        int32_t color = 0xffffff;
+        double share = 0.0;   // 生成占比 = weight / Σweight
+    };
+    const std::vector<PopulationEntry>& population() const { return population_; }
+    double population_weight() const { return population_weight_; }
+
     // 单粒子初条件预览(无注入节点 / 无 B 表 → valid=false)
     SourcePreview source_preview() const;
 
@@ -89,5 +100,7 @@ private:
     std::vector<ParticleType> species_types_;  // 计划内启用的物种(空 = 用发射器自身类型)
     int plan_count_ = 0;                       // 图内粒子数(0 = 无覆盖)
     bool degenerate_injection_ = false;        // 注入 + count>1 → 粒子全重合
+    std::vector<PopulationEntry> population_;  // 解析后的种群(UI 读数)
+    double population_weight_ = 0.0;           // Σweight
     double sim_time_ = 0.0;                    // 仿真时间累积(s)
 };

@@ -48,6 +48,10 @@ window.protocol = (function () {
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
         }
+        const pop = s.population;
+        if (pop && pop.count > 0) {
+            bits.push(`种群 ${pop.count} 种${pop.count > 1 ? "(图级声明)" : ""}`);
+        }
         el.innerHTML = bits.map((b, i) =>
             `<span class="${i === 0 ? "" : "dim"}">${b}</span>`).join("\n");
     }, 250);
@@ -211,6 +215,11 @@ window.protocol = (function () {
                     setParticles(serverParticleCount);
                 }
             }
+        } else if (m.type === "population") {
+            // 服务器聚合出的**真实**种群(图级):画布接线只是表达
+            simStats.population = m;
+            window.editor && window.editor.onPopulation &&
+                window.editor.onPopulation(m);
         } else if (m.type === "source_preview") {
             // L2 服务器预览:GSM → 渲染坐标在此统一重映射(与帧协议一致),
             // 渲染项只认场景坐标;物理量原样透传给属性面板读数。
