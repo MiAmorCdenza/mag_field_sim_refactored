@@ -1,4 +1,8 @@
 // 内置渲染项:电场线(geometry:efield_lines 帧)。
+// 着色:节点参数 color 非空 → 统一该色;留空 → 默认暖黄 0xffd166
+// (电场线不做拓扑分类,只有一类种子)。
+const E_FIELD_LINE_DEFAULT_COLOR = 0xffd166;
+
 registerRenderItem({
     id: "efield_lines",
     layer: 1,
@@ -32,7 +36,7 @@ registerRenderItem({
                 off += 12;
             }
             if (pts.length < 2) continue;
-            const color = this.params.color || 0xffd166;
+            const color = this.params.color || E_FIELD_LINE_DEFAULT_COLOR;
             const geo = new this.three.BufferGeometry().setFromPoints(pts);
             const mat = new this.three.LineBasicMaterial({
                 color, transparent: true,
@@ -44,9 +48,19 @@ registerRenderItem({
         }
     },
 
+    recolor() {
+        const c = this.params.color || E_FIELD_LINE_DEFAULT_COLOR;
+        for (const l of this.lines) l.material.color.set(c);
+    },
+
     onParam(params) {
         this.params = Object.assign({}, this.params, params);
         if (params.visible !== undefined) this.group.visible = !!params.visible;
+        if (params.opacity !== undefined) {
+            for (const l of this.lines) l.material.opacity = params.opacity;
+        }
+        // 改色立即生效(否则要等下一次几何帧/重新烘焙)
+        if ("color" in params) this.recolor();
     },
 
     clear() {

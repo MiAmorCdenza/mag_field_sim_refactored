@@ -444,6 +444,9 @@ registerRenderItem({
         const params = {};
         for (const [k, v] of Object.entries(node.properties)) {
             if (k === "spec_type" || k === "json_id" || k.startsWith("in:")) continue;
+            // 空 color = "用渲染项自身的默认色"(场线按拓扑分类着色),
+            // 不能把空串推下去覆盖分类色
+            if (k === "color" && v === "") continue;
             params[k] = v;
         }
         if (window.renderHost) window.renderHost.applyParams(itemId, params);

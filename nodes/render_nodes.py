@@ -54,6 +54,10 @@ class RenderPipelineStartNode(RenderNodeBase):
     outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
+        # 留空 = 用渲染项自身的拓扑分类色(闭合蓝/开放红/太阳风绿);
+        # 填值 = 所有线统一该色(覆盖分类色)
+        "color": Param("string", default="",
+                       desc="留空 = 按拓扑分类着色(闭合蓝/开放红/太阳风绿)"),
         "dsmax": Param("scalar", default=0.2, min=0.05, max=2.0),
         "err": Param("scalar", default=1e-4, min=1e-6, max=1e-2),
         "arrows": Param("bool", default=True),
@@ -73,6 +77,8 @@ class RenderItemFieldLinesNode(RenderNodeBase):
     outputs={"next": "any"},
     params={
         **_RENDER_COMMON,
+        "color": Param("string", default="",
+                       desc="留空 = 按拓扑分类着色(闭合蓝/开放红/太阳风绿)"),
         "dsmax": Param("scalar", default=0.2, min=0.05, max=2.0),
         "err": Param("scalar", default=1e-4, min=1e-6, max=1e-2),
         "arrows": Param("bool", default=True),
