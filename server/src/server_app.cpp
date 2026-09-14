@@ -5,6 +5,8 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -1002,6 +1004,75 @@ struct ServerApp::Impl {
         CROW_ROUTE(app, "/api/graph")([this]() {
             std::lock_guard<std::mutex> g(st.m);
             return crow::response(st.graph_json);
+        });
+
+        // 预设发现(#33):扫 graphs/preset_*.json → 引导页卡片列表。
+        // 预设文件可带 meta 块(取不到就用文件名);
+        // 增删预设 = 增删文件,前端自动排列,无需改代码。
+        CROW_ROUTE(app, "/api/presets")([this]() {
+            nlohmann::json arr = nlohmann::json::array();
+            std::error_code ec;
+            const std::string dir = cfg.root + "/graphs";
+            std::filesystem::directory_iterator it(dir, ec);
+            if (ec) return crow::response(500, "graphs 目录不存在: " + dir);
+            std::vector<std::filesystem::path> files;
+            for (auto& e : it) {
+                if (!e.is_regular_file()) continue;
+                const auto name = e.path().filename().string();
+                if (name.rfind("preset_", 0) != 0) continue;
+                if (e.path().extension() != ".json") continue;
+                files.push_back(e.path());
+            }
+            std::sort(files.begin(), files.end());
+            for (const auto& p : files) {
+                std::ifstream f(p, std::ios::binary);
+                if (!f) continue;
+                nlohmann::json doc = nlohmann::json::parse(f, nullptr, false);
+                if (doc.is_discarded() || !doc.is_object()) continue;
+                const nlohmann::json meta =
+                    doc.contains("preset") && doc["preset"].is_object()
+                        ? doc["preset"] : nlohmann::json::object();
+                std::string stem = p.stem().string();          // preset_xxx
+                std::string id = stem.rfind("preset_", 0) == 0
+                                     ? stem.substr(7) : stem;
+                nlohmann::json card{
+                    {"id", meta.value("id", id)},
+                    {"name", meta.value("name", id)},
+                    {"desc", meta.value("desc", "")},
+                    {"file", p.filename().string()},
+                    {"custom", meta.value("custom", false)},
+                    {"sort", meta.value("sort", 100)},
+                    {"lattice", doc.value("lattice", nlohmann::json::object())
+                                    .value("preset", "coarse")},
+                    {"nodes", doc.contains("nodes") ? doc["nodes"].size() : 0},
+                    {"edges", doc.contains("edges") ? doc["edges"].size() : 0},
+                };
+                arr.push_back(std::move(card));
+            }
+            std::stable_sort(arr.begin(), arr.end(),
+                             [](const nlohmann::json& a, const nlohmann::json& b) {
+                                 return a.value("sort", 100) < b.value("sort", 100);
+                             });
+            return crow::response(arr.dump());
+        });
+
+        // 取某个预设的图 JSON(引导页点卡片 → 直接喂给编辑器/服务器)
+        CROW_ROUTE(app, "/api/preset")([this](const crow::request& req) {
+            std::string id = req.url_params.get("id") ? req.url_params.get("id") : "";
+            if (id.empty()) return crow::response(400, "缺少 id");
+            // 只允许 graphs/preset_*.json,防目录穿越
+            for (const char c : id) {
+                if (!(std::isalnum((unsigned char)c) || c == '_' || c == '-'))
+                    return crow::response(400, "非法 id");
+            }
+            const std::string path = cfg.root + "/graphs/preset_" + id + ".json";
+            std::ifstream f(path, std::ios::binary);
+            if (!f) return crow::response(404, "预设不存在: " + id);
+            std::string body((std::istreambuf_iterator<char>(f)),
+                             std::istreambuf_iterator<char>());
+            crow::response r(body);
+            r.set_header("Content-Type", "application/json");
+            return r;
         });
 
         CROW_ROUTE(app, "/api/log").methods("POST"_method)

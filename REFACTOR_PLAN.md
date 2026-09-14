@@ -674,3 +674,22 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
       (以 B̂ 为轴、俯仰角为半顶角画漏斗;已接进单粒子预设)
     - 实测:预设各渲染项订阅 = 接线所得;拔 `enc→rpt.data` 后 `rpt → []`
       (其它项不受影响);新增插件节点热扫即出现在 /api/nodes
+33. **引导页 + 预设自动发现**(用户诉求:"打开网页看到仿真标题与几个预设
+    各自的选项框(自动排列,方便工程内添加),保留一个『自定义』入口进入
+    标准空预设")
+    - 服务器:`GET /api/presets` 扫 `graphs/preset_*.json` → 卡片列表
+      (id/name/desc/custom/sort/lattice/nodes/edges);`GET /api/preset?id=xx`
+      取图 JSON(仅允许 `preset_<id>.json`,字符白名单防目录穿越)
+    - 预设文件可带 **meta 块** `{"preset": {...}}`(引擎/编辑器忽略未知顶层
+      键,安全);缺省用文件名。**加预设 = 放一个 preset_*.json**(+ 可选 .md),
+      引导页自动多一张卡片,不用改任何代码 —— 卡片用 CSS grid `auto-fill`
+      自动排列
+    - 前端 `static/launcher.js` + `#launcher` 覆盖层:标题 / 副标题 / 卡片网格
+      / 「跳过,保持服务器当前的图」;卡片点击 = `loadGraph(doc)` +
+      `uploadGraph(doc)`;`localStorage.mf_last_preset` 记住上次(高亮 + 「上次」
+      角标);工具栏「☰ 预设」随时重新打开
+    - `graphs/preset_custom_empty.json` = 自定义入口(空画布、点阵 coarse,
+      meta.custom=true → 虚线卡片)
+    - 新增 `tests/test_presets.py`:跟着发现列表走 —— 卡片字段齐全、必须有
+      custom 入口、每个预设的图能加载、**非 custom 预设零告警**(计划/绑定/
+      slow_path/B 槽位),即"出厂预设不许带病"

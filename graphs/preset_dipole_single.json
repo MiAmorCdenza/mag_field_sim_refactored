@@ -1,4 +1,10 @@
 {
+ "preset": {
+  "id": "dipole_single",
+  "name": "标准偶极子 · 单粒子",
+  "desc": "倾斜偶极子 + 单粒子注入:确定性初条件、磁镜捕获、初条件预览与俯仰角锥。调试单粒子工具的最小闭环。",
+  "sort": 10
+ },
  "version": 1,
  "lattice": {
   "preset": "tiny"

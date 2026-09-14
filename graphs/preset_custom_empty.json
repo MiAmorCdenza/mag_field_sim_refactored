@@ -1,0 +1,16 @@
+{
+ "preset": {
+  "id": "custom_empty",
+  "name": "自定义 / 空预设",
+  "desc": "空白画布:从零搭图(场 → 粒子 → 渲染)。点节点面板「添加节点」开始。",
+  "custom": true,
+  "sort": 900
+ },
+ "version": 1,
+ "lattice": {
+  "preset": "coarse"
+ },
+ "nodes": [],
+ "edges": [],
+ "outputs": {}
+}
