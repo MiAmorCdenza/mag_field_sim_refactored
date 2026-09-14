@@ -69,12 +69,18 @@ AXIS_PRESETS = {
     "z_fine": dict(vmin=-45.0, vmax=45.0, vcenter=0.0,
                    inner_halfwidth=10.0, inner_dx=0.2, total_points=128),
     # ---- tiny(开发/集成测试:烘焙秒级)----
+    # 外侧点数不能太少:r>3 的壳层若只剩 1-2 个节点(曾出现 y/z 只有 ±12),
+    # 三线性插值会抹平该壳层内的场方向变化 → 近磁轴的极盖场线从"笔直射线"
+    # 变成游走/提前折回(实测与解析偶极子偏差 3-8 Re),且 x 太稀会让
+    # r=6.6 处 |B| 偏高 65%。现取三轴外层格距 ~1 Re:
+    #   |B|(6.6,0,0) 232.6 → 144.6 nT(解析 141.1,误差 +65% → +2.5%)
+    #   近轴种子线几何偏差 3-8 Re → ≤0.24 Re
     "x_tiny": dict(vmin=-15.0, vmax=10.0, vcenter=0.0,
-                   inner_halfwidth=3.0, inner_dx=0.25, total_points=32),
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=56),
     "y_tiny": dict(vmin=-12.0, vmax=12.0, vcenter=0.0,
-                   inner_halfwidth=3.0, inner_dx=0.25, total_points=28),
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=48),
     "z_tiny": dict(vmin=-12.0, vmax=12.0, vcenter=0.0,
-                   inner_halfwidth=3.0, inner_dx=0.25, total_points=28),
+                   inner_halfwidth=3.0, inner_dx=0.25, total_points=48),
 }
 
 # 点阵预设:名字 -> {x/y/z: 轴预设名}
