@@ -1,8 +1,8 @@
 ﻿# 便携包打包:Release exe + 嵌入式 Python 运行时 + 站点包 → zip。
 # 目标机器无需 Python/VS,仅需 Windows x64(Release CRT 已随包附带)。
 #
-# 用法: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 [-Version v0.1.0-beta]
-param([string]$Version = "v0.1.0-beta")
+# 用法: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 [-Version v0.2.0-beta]
+param([string]$Version = "v0.2.0-beta")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -159,10 +159,12 @@ foreach ($m in @("numpy", "scipy", "geopack")) {
 # 应用 Python 代码(引擎与节点插件 —— 服务器在 --root 下 import engine)
 Copy-Item (Join-Path $root "engine") (Join-Path $pkg "engine") -Recurse
 Copy-Item (Join-Path $root "nodes") (Join-Path $pkg "nodes") -Recurse
-if (Test-Path (Join-Path $root "user_nodes")) {
-    Copy-Item (Join-Path $root "user_nodes") (Join-Path $pkg "user_nodes") -Recurse
+foreach ($d in @("user_nodes", "user_render_items")) {
+    if (Test-Path (Join-Path $root $d)) {
+        Copy-Item (Join-Path $root $d) (Join-Path $pkg $d) -Recurse
+    }
 }
-# 应用资源
+# 应用资源(static 含渲染项插件与引导页;graphs 含预设与指南)
 Copy-Item (Join-Path $root "static") (Join-Path $pkg "static") -Recurse
 Copy-Item (Join-Path $root "graphs") (Join-Path $pkg "graphs") -Recurse
 Copy-Item (Join-Path $root "readme.md") $pkg
@@ -178,15 +180,21 @@ powershell -NoProfile -Command "$r=$null; for($i=0;$i -lt 60;$i++){ try{ $r=Invo
 "@ | Set-Content -Path (Join-Path $pkg "启动.bat") -Encoding Default
 
 @"
-mf_server 便携版 $Version
-=========================
+EarthMagFieldSim 便携版 $Version
+================================
 双击 启动.bat 即用(自动开浏览器 http://127.0.0.1:8001)。
 
-内容:mf_server.exe(Release)+ 嵌入式 Python 3.14 运行时 + 站点包
-(numpy/geopack)+ static/graphs 资源 + 默认图。
-目标机器要求:仅 Windows 10/11 x64(无需安装 Python/VS;VC 运行库已随包)。
-停止:任务管理器结束 mf_server,或 PowerShell: Get-Process mf_server | Stop-Process
-日志:logs\server.jsonl
+打开后是**引导页**:点一张预设卡片即载入(每个预设都配一份同名 .md 指南),
+或点「自定义 / 空预设」从空白画布搭图。
+
+内容:mf_server.exe(Release)+ 嵌入式 Python 3.14 + numpy/scipy/geopack
+     + engine/nodes(可热加载的节点插件)+ static(前端与渲染项插件)
+     + graphs(5 个预设与指南)+ 默认图
+
+要求:Windows 10/11 x64(无需安装 Python/VS;VC 运行库已随包)。
+停止:任务管理器结束 mf_server.exe,或 PowerShell: Get-Process mf_server | Stop-Process
+日志:logs\server.jsonl(单一 JSON 流,含前端 warn 以上)
+反馈:把日志末尾几行 + 你点的预设名一起发来即可。
 "@ | Set-Content -Path (Join-Path $pkg "使用说明.txt") -Encoding Default
 Ok "便携目录就绪: $pkg"
 

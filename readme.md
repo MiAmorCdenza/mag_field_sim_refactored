@@ -1,123 +1,109 @@
 # 地球磁场与带电粒子运动实时仿真器 (EarthMagFieldSim)
 
-基于 C++ (Crow + 嵌入式 Python) 和前端 WebGL (Three.js) 的空间物理实时仿真项目。通过求解相对论洛伦兹力方程，在浏览器中以极高帧率实时模拟带电粒子在真实地球磁场中的三维动力学行为。
+**节点式**空间物理仿真平台:把「场模型 → 粒子推进 → 可视化」拆成可插拔节点,
+在浏览器里实时看三维结果。C++ 原生热路径(Crow + 嵌入式 Python 只做烘焙),
+前端 Three.js 由**浏览器端 JS 渲染插件**驱动。
 
-## 架构
+> 当前版本 **v0.2.0-beta**(初步测试版)。反馈请附 `logs\server.jsonl` 末尾几行。
+
+## 快速开始(便携包,推荐发给别人测试)
+
+1. 解压 zip 到任意目录(路径别太深)
+2. 双击 **`启动.bat`** —— 自动启动服务器并打开浏览器 `http://127.0.0.1:8001`
+3. 首屏是**引导页**:选一个预设开始,或进「自定义 / 空预设」搭自己的图
+
+要求:Windows 10/11 x64。**无需安装 Python / VS / VC 运行库**(嵌入式
+Python 3.14 与 numpy/geopack、CRT 都在包里)。停止:任务管理器结束
+`mf_server.exe`,或 `Get-Process mf_server | Stop-Process`。
+
+## 预设(引导页里各一张卡片)
+
+| 卡片 | 看什么 |
+|---|---|
+| **标准偶极子 · 单粒子** | 单粒子工具:确定性初条件、磁镜捕获、初条件预览 + 俯仰角锥 |
+| **T89 磁层 · 单粒子** | T89 场线拓扑 + `mul(w=0.01)` 缩放场后的可见回旋螺旋 |
+| **复合场 · 多种群** | T89 + 磁尾 + 偶极 + IMF 经磁层顶合成;电子/质子/α 三种群 |
+| **Van Allen 辐射带(T89)** | 体积随机播种 + c/3 动能 → 损失锥沉降、其余磁镜捕获成带 |
+| **自定义 / 空预设** | 空白画布,从零搭图 |
+
+每个预设都配一份同名 `.md` 调试指南(图结构、参数速查、物理预期、已知取舍)。
+
+## 架构(三域节点图)
 
 ```
-浏览器 (Three.js/WebGL)  ←WebSocket→  C++ Crow 服务器  ←嵌入式Python→  T89/T96/T01 网格 + NOAA Kp
-         ↑                                        ↑
-    static/                                   physics_engine.cpp
-  (index.html                              (Boris相对论积分器
-   main.js)                                  多线程并行)
+场域(Python 烘焙)          粒子域(C++ 原生,每帧零 Python)      渲染域(浏览器 JS)
+偶极/T89/T96/… → 输出槽 ──┬─→ Boris/蛙跳/RK4/Verlet ─→ 编码器 ──┬─→ 场线/粒子/拖尾/…
+                          └─→ 场线渲染项(服务器追踪)            └─→ 初条件预览/俯仰角锥/…
 ```
 
-- **后端**：纯 C++ Crow HTTP/WebSocket 服务器，内嵌 Python 解释器仅用于 T89/T96/T01 磁场网格计算和 NOAA Kp 指数拉取
-- **物理引擎**：就地编译为单个可执行文件，Boris 相对论积分器 + 多线程并行步进（每个物理步长 2 万粒子亚毫秒级处理）
-- **前端**：Three.js InstancedMesh + LineSegments，20000 粒子仅 2 次 Draw Call
+- **场域**:节点声明式,`evaluate()` 拉取式求值 + 内容寻址缓存,结果烘焙成
+  三线性查表(`Table3D`)交给 C++
+- **粒子域**:`Graph.particle_plan()` 把子图编译成执行计划(POD JSON),
+  `SimPipeline` 按计划跑原生内核;`IBatchAdvancer` 是可插拔内核 seam,
+  4 个内置内核(Boris 与老引擎位级一致 / 蛙跳 / RK4 / Verlet)
+- **渲染域**:**接线决定订阅** —— 数据通道按端口类型路由(`field_table` →
+  `geometry:*` 帧、`particle_buffer` → `particles` 帧、`source_spec` →
+  `source_preview` 消息);拔掉数据线该渲染项就不订阅,服务器同时告警
 
-## 快速开始
+### 两条贯穿设计
 
-### 编译
+1. **边只表示数据依赖,顺序走参数**:粒子域有 `order`,渲染域有 `layer`
+   (早期版本靠 `prev/next` 链表达顺序与成员关系,已移除)
+2. **画布必须说真话**:引擎隐式用到的东西会以**虚影节点 + 虚线**摆在画布上
+   (默认发射器 / 兜底物种 / 缺积分器=冻结 / 缺编码器=不发帧);编译期诊断
+   (无 B 表、槽位未解析、渲染项未接线、注入+count>1 退化…)经
+   `plan_status.warnings` 报到界面(toast + HUD + 节点红框)
+
+## 插件(丢文件即生效,无需重启)
+
+- **场/粒子域节点**:放一个 `nodes/*.py`(声明式),registry 热扫即出现在「添加节点」
+- **渲染项**:`nodes/render_item_*.py`(声明 `data` 端口类型 + `channels`)
+  \+ `static/renderer/items/*.js`(`registerRenderItem`)+ `index.html` 引一行;
+  数据端口接上才订阅。完整示例见
+  `nodes/render_item_pitch_cone.py` + `static/renderer/items/pitch_cone.js`
+
+## 开发环境
 
 ```powershell
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+scripts\start.ps1          # 建 .venv、装依赖、编译、起服务器(开发用)
+scripts\check_env.ps1      # 环境自检
+scripts\package.ps1 -Version v0.2.0-beta   # 打便携包 → dist\*.zip
 ```
 
-生成 `build/Release/MagFieldSim_Server.exe`（~600 KB）。
+服务器参数:`mf_server.exe --root . --port 8001 --particles 20000 [--graph graphs\preset_x.json]`
 
-### 运行
+## 测试
 
 ```powershell
-.\build\Release\MagFieldSim_Server.exe
+# 引擎与预设(纯 Python / 需服务端)
+.\.venv\Scripts\python.exe tests\test_engine_smoke.py     # 引擎冒烟(计划/通道/行表/诊断)
+.\.venv\Scripts\python.exe tests\test_field_nodes.py      # 场节点 vs 旧引擎(19 诊断点,位级一致)
+.\.venv\Scripts\python.exe tests\test_presets.py          # 预设完整性(含真烘焙,零告警)
+.\.venv\Scripts\python.exe tests\test_preset_single.py    # 单粒子预设端到端
+.\.venv\Scripts\python.exe tests\test_ws_warnings.py      # 计划诊断端到端
+.\.venv\Scripts\python.exe tests\test_ws_client.py        # WS 协议端到端
+.\.venv\Scripts\python.exe tests\audit_wiring.py          # 接线审计(哪些边是真依赖)
+
+# C++ 侧(独立编译)
+server\build\headless.exe    # 能量守恒 / 2 万粒子性能 / 编码协议 / 注入语义
+server\build\tracer_test.exe # 磁力线追踪器验收
 ```
 
-浏览器打开 `http://localhost:8001`。
+## 端口与文件
 
-首次启动计算 T89 网格（61×41×41 = 10.2 万采样点）约需 30 秒，之后再启动秒开。
+- 网页 `http://127.0.0.1:8001`;WS `ws://127.0.0.1:8001/ws`
+- 日志(单一 JSON 流):`logs\server.jsonl`(含前端 warn 以上)
+- 图与预设:`graphs\`(放 `preset_*.json` 即自动出现在引导页)
+- 点阵预设:`tiny`(快,开发/预设用)/ `coarse`(legacy 视场)/ `fine`
 
-### 部署到其他电脑
+## 已知限制(v0.2.0-beta)
 
-```powershell
-.\deploy.ps1    # 生成 deploy_package/EarthMagFieldSim.zip
-```
+- 一个图上只有**第一个发射器**生效(v1);多发射器在路线图上
+- 电子回旋周期 ~1e-4 s,在 `dt=0.01` 下欠采样(弹跳/漂移仍正确)
+- `tiny` 点阵外层格距 ~1 Re,定量结论建议用 `coarse` 复核
+- Windows x64 专用;Linux/macOS 未打包
 
-目标电脑需安装 Python 3.10+ 和 VC++ Redistributable x64。双击 `run.bat` 启动，自动安装 `numpy geopack requests`。
+## 验收基线
 
-## 核心特性
-
-### 磁场模型
-
-| 模型 | 说明 |
-|------|------|
-| **简易解析模型** | 倾斜偶极子 + 镜像偶极子（磁层顶压缩）+ 磁尾拉伸 |
-| **T89** (默认) | 外部磁场，仅需 Kp 指数 |
-| **T96** | 包含磁层顶 + 磁尾 + 环电流，参数更丰富 |
-| **T01** | 最新模型，支持暴时动力学 |
-
-Kp 指数可手动控制或勾选自动更新（每 5 分钟从 NOAA 拉取）。太阳风压缩系数与 Kp 联动：`compression = 1.0 + Kp/9.0`。
-
-### 物理模型
-
-- 相对论 Boris 积分器（自适应亚步长，最多 20 亚步）
-- 晨昏对流电场 + 地球自转共转电场 + Volland-Stern 屏蔽模型
-- 热层大气阻尼（单层指数 / 分层模型）
-- 地球引力场
-- 多种粒子类型：质子 (m=1.0 amu)、电子 (m=0.00054 amu)、α 粒子 (He²⁺, m=4.0 amu)
-- 三种发射器模式：定向盘面 / 全向球面 / 体积随机
-
-### 可视化
-
-- 粒子数 > 5000 建议关闭拖尾以保证帧率
-- 渲染半径可独立调节（视野外粒子静默计算、节省 GPU）
-- 碰撞轨迹永久渲染
-- 磁场线实时绘制
-
-## 实验指南
-
-### 实验 1：范艾伦辐射带 (Van Allen Belts)
-
-- **模型**：T89，Kp=2
-- **粒子类型**：质子 + 电子 + α 粒子
-- **发射器**：球面发射或体积随机
-- **现象**：粒子在偶极场中的三重运动——回旋、弹跳、漂移。质子→西漂，电子→东漂，形成环电流。
-
-### 实验 2：磁镜效应 (Magnetic Mirroring)
-
-- **粒子数**：1000
-- **发射器**：全向球面发射，增大角度随机量
-- **现象**：粒子向极区俯冲时被强磁场反弹，仅极小投掷角粒子落入损失锥。
-
-### 实验 3：阿尔芬层不对称性
-
-- **电场**：启用，选择 Volland-Stern 屏蔽模型，倍率 5.0x
-- **现象**：E×B 漂移使质子沉降在晨侧，电子沉降在昏侧。
-
-### 实验 4：大气阻尼与极光沉降
-
-- **大气**：启用分层模型，倍率 10.0x
-- **现象**：粒子在热层中减速、螺旋、沉降，留下弹簧状永久轨迹。
-
-### 实验 5：磁层拓扑
-
-- **模型**：T96 或 T01
-- **现象**：磁力线不再对称——日侧压缩变扁，夜侧拉伸为彗星状磁尾。
-
-## 文件结构
-
-```
-mag_field_sim/
-├── MagFieldSim_Server.exe   # 编译产物
-├── physics_engine.cpp        # 物理引擎（Boris、磁场、粒子管理）
-├── server_main.cpp            # Crow 服务器入口 + WebSocket 处理
-├── python_bridge.py           # T89/T96/T01 网格计算 + NOAA Kp 拉取
-├── config.json                # 默认仿真参数
-├── CMakeLists.txt             # 构建配置
-├── deploy.ps1                 # 一键打包脚本
-├── run.bat                    # 目标电脑启动器
-├── static/
-│   ├── index.html
-│   └── main.js
-└── README.md
-```
+默认图烘焙与老引擎在 19 个诊断点上**位级一致**(`test_field_nodes.py`,
+`max|Δ|=0.00e+00`);2 万粒子单步 < 5 ms 预算(实测 ~0.23 ms/步)。
