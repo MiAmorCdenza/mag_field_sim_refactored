@@ -72,8 +72,54 @@
     }
     #sim-hud .dim { color: #8b949e; }
     #sim-hud .warn { color: #f0c674; }
-    /* 引导页(#33):标题 + 预设卡片网格(自动排列 —— 加预设文件即多一张卡) */
-    #launcher {
+    /* ---- 简化面板(#38):左侧 Dock ---- */
+    #dock {
+        flex: 0 0 300px; display: none; flex-direction: column; min-width: 0;
+        background: #0f141b; border-right: 1px solid var(--border);
+    }
+    body.simple-mode #dock { display: flex; }
+    body.simple-mode.dock-collapsed #dock { flex: 0 0 34px; }
+    body.simple-mode.dock-collapsed #dock-body,
+    body.simple-mode.dock-collapsed .dock-title { display: none; }
+    body.simple-mode #editor-wrap { display: none; }      /* 画布让位给 3D 主体 */
+    /* 只对画布有意义的按钮在简化面板里隐掉 */
+    body.simple-mode #btn-add-node,
+    body.simple-mode #btn-layout { display: none; }
+    body.simple-mode #right { flex: 1 1 auto; }
+    body.simple-mode #props { display: none; }            /* 参数改在 Dock 里调 */
+    body.simple-mode #viewport-wrap { border-bottom: none; min-height: 0; }
+    #dock-head {
+        display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+        border-bottom: 1px solid var(--border); background: #121821;
+    }
+    #dock-head button {
+        background: #21262d; color: var(--text); border: 1px solid var(--border);
+        border-radius: 4px; cursor: pointer; padding: 1px 6px; font-size: 0.72rem;
+    }
+    .dock-title { flex: 1; font-weight: 700; color: var(--accent); font-size: 0.8rem; }
+    #dock-body { flex: 1; overflow-y: auto; padding: 8px; }
+    .dock-group { margin-bottom: 10px; }
+    .dock-group-head {
+        color: #7d8b9a; font-size: 0.7rem; letter-spacing: 0.04em;
+        text-transform: uppercase; margin: 4px 0 6px;
+    }
+    .dock-node { border: 1px solid var(--border); border-radius: 5px; margin-bottom: 4px; }
+    .dock-node-head {
+        width: 100%; display: flex; align-items: center; gap: 6px; cursor: pointer;
+        background: #161b22; color: var(--text); border: 0; border-radius: 5px;
+        padding: 5px 7px; font-size: 0.76rem; text-align: left;
+    }
+    .dock-node-head:hover { background: #1b2330; }
+    .dock-caret { color: var(--dim); width: 10px; }
+    .dock-icon { width: 16px; text-align: center; }
+    .dock-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dock-id { color: #6e7681; font-size: 0.68rem; font-family: Consolas, monospace; }
+    .dock-node-body { display: none; padding: 8px 9px 2px; }
+    .dock-node-body.open { display: block; }
+    .dock-node-body .prop-row label { color: var(--dim); }
+    .dock-node-body .hint { color: var(--dim); font-size: 0.72rem; }
+
+    /* 引导页(#33):标题 + 预设卡片网格(自动排列 —— 加预设文件即多一张卡) */    #launcher {
         position: fixed; inset: 0; z-index: 50; overflow-y: auto;
         background: radial-gradient(1200px 600px at 20% 0%, #16202c 0%, #0d1117 60%);
         display: flex; flex-direction: column; align-items: center;
@@ -170,6 +216,7 @@
     <span id="graph-ver" class="badge">图 v0</span>
     <span id="ptc-badge" class="badge">粒子 –</span>
     <button id="btn-add-node">➕ 添加节点</button>
+    <button id="btn-ui-mode">◧ 简化面板</button>
     <button id="btn-presets">☰ 预设</button>
     <button id="btn-layout">🧹 自动布局</button>
     <button id="btn-upload" class="primary">⬆ 应用图到服务器</button>
@@ -196,6 +243,15 @@
             <span id="launcher-hint"></span>
         </div>
     </div>
+    <!-- 简化面板(#38)左侧 Dock:按类别动态列出当前图的节点,展开调参数 -->
+    <aside id="dock">
+        <div id="dock-head">
+            <button id="dock-toggle" title="收缩/展开">◀</button>
+            <span class="dock-title">参数</span>
+            <button id="dock-refresh" title="重新扫描当前图">⟳</button>
+        </div>
+        <div id="dock-body"></div>
+    </aside>
     <div id="editor-wrap">
         <canvas id="editor-canvas"></canvas>
         <div id="palette" class="hidden">
@@ -240,6 +296,7 @@
 <script src="/renderer/items/efield_lines.js"></script>
 <script src="/editor.js"></script>
 <script src="/protocol.js"></script>
+<script src="/simple_ui.js"></script>
 <script src="/launcher.js"></script>
 </body>
 </html>

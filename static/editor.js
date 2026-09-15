@@ -205,6 +205,9 @@ window.editor = (function () {
                     if (!renderIds.has(id)) window.renderHost.unregisterItem(id);
                 }
             }
+            // 简化面板(#38):换图 → 重建左侧 Dock(按类别动态列出新图的节点)
+            window.simpleUI && window.simpleUI.onGraphLoaded &&
+                window.simpleUI.onGraphLoaded();
             // 全部节点缺位置时(如内置默认图)自动做层次化排布
             if (doc.nodes.length &&
                 doc.nodes.every(nd => !nd.pos ||
@@ -421,6 +424,13 @@ window.editor = (function () {
             body.innerHTML = '<div class="hint">点击画布中的节点编辑其参数。</div>';
             return;
         }
+        buildParamsInto(node, body);
+    }
+
+    // 把某节点的可编辑参数(输入端口默认值 + params)渲染进任意容器。
+    // 简化面板(#38)的左侧 Dock 复用同一套控件 —— 不重复实现参数编辑,
+    // 两处面板对同一节点永远一致。
+    function buildParamsInto(node, body) {
         const spec = node._spec;
 
         // 未连线的输入端口(默认值 = 参数)
@@ -472,7 +482,8 @@ window.editor = (function () {
                     if (spec.type === "particle_species" && k === "preset" &&
                         spec.presets && spec.presets[v]) {
                         Object.assign(node.properties, spec.presets[v]);
-                        renderProps(node);
+                        body.innerHTML = "";          // 重画到**当前容器**
+                        buildParamsInto(node, body);
                         return;
                     }
                 }));
@@ -483,7 +494,7 @@ window.editor = (function () {
             spec.type === "particle_injection") {
             const box = document.createElement("div");
             box.className = "hint";
-            box.id = "pop-readout";
+            box.classList.add("pop-readout");   // 类而非 id:两处面板可并存
             box.style.whiteSpace = "pre-wrap";
             body.appendChild(box);
             renderPopulationReadout();
@@ -494,7 +505,7 @@ window.editor = (function () {
         if (spec.type === "particle_injection") {
             const box = document.createElement("div");
             box.className = "hint";
-            box.id = "inj-readout";
+            box.classList.add("inj-readout");
             box.style.whiteSpace = "pre-wrap";
             box.textContent = "初条件读数:等待服务器预览…";
             body.appendChild(box);
@@ -503,7 +514,7 @@ window.editor = (function () {
 
         // ---- 渲染节点:内联代码编辑器 + 参数下发 ----
         const codePanel = document.getElementById("code-editor");
-        if (spec.domain === "render" &&
+        if (body.id === "props-body" && spec.domain === "render" &&
             spec.type !== "render_pipeline_start") {
             codePanel.classList.remove("hidden");
             const codeEl = document.getElementById("code-text");
@@ -617,21 +628,24 @@ window.editor = (function () {
     }
 
     // 属性面板读数(选中 species 节点或发射器时显示)
+    // 类而非 id:同一节点可能同时在右侧属性面板与简化面板 Dock 里(C-38)
     function renderPopulationReadout() {
-        const box = document.getElementById("pop-readout");
-        if (!box) return;
+        const boxes = document.querySelectorAll(".pop-readout");
+        if (!boxes.length) return;
         const pop = window.simStats && window.simStats.population;
+        let text;
         if (!pop || !pop.species || !pop.species.length) {
-            box.textContent = "真实种群:等待服务器解析…(物种为图级声明)";
-            return;
+            text = "真实种群:等待服务器解析…(物种为图级声明)";
+        } else {
+            const rows = pop.species.map(s =>
+                `${s.color} ${s.name}  w=${s.weight}  ${(s.share * 100).toFixed(1)}%` +
+                `  q=${s.q} m=${s.mass}`);
+            text = `真实种群(服务器聚合,共 ${pop.count} 种,` +
+                `权重合计 ${pop.total_weight}):\n` + rows.join("\n") +
+                (pop.count > 1 ? "\n⚠ 图级声明:未接线的 particle_species 节点同样参与生成"
+                               : "");
         }
-        const rows = pop.species.map(s =>
-            `${s.color} ${s.name}  w=${s.weight}  ${(s.share * 100).toFixed(1)}%` +
-            `  q=${s.q} m=${s.mass}`);
-        box.textContent = `真实种群(服务器聚合,共 ${pop.count} 种,` +
-            `权重合计 ${pop.total_weight}):\n` + rows.join("\n") +
-            (pop.count > 1 ? "\n⚠ 图级声明:未接线的 particle_species 节点同样参与生成"
-                           : "");
+        boxes.forEach(b => { b.textContent = text; });
     }
 
     function onPopulation() {
@@ -646,10 +660,10 @@ window.editor = (function () {
 
     // 单粒子初条件读数面板(与 3D 预览同源:服务器 L2 预览消息)
     function renderInjectionReadout(src) {
-        const box = document.getElementById("inj-readout");
-        if (!box) return;
+        const boxes = document.querySelectorAll(".inj-readout");
+        if (!boxes.length) return;
         if (!src || typeof src.b_nt !== "number") {
-            box.textContent = "初条件读数:等待服务器预览…";
+            boxes.forEach(b => { b.textContent = "初条件读数:等待服务器预览…"; });
             return;
         }
         const f = (v, d) => (typeof v === "number" && isFinite(v) ? v.toFixed(d) : "—");
@@ -671,7 +685,7 @@ window.editor = (function () {
                        "在偶极子后加 mul 节点缩放 B(w=0.01 → R_g ×100)即可看见回旋。");
         }
         if (src.note) lines.push("⚠ " + src.note);
-        box.textContent = lines.join("\n");
+        boxes.forEach(b => { b.textContent = lines.join("\n"); });
     }
 
     // local=true:拖参数时的即时本地估算(r=位置立刻动;服务器 ~250ms 后细化)
@@ -1159,6 +1173,7 @@ registerRenderItem({
     return { initRegistry, loadGraph, exportGraph, canvas, graph, onSourcePreview,
              onPopulation, markSpeciesNodes, onPlanWarnings, onPlanImplicit,
              clearGhosts, addNodeWithCompanions,
+             buildParamsInto,   // 简化面板(#38)复用同一套参数控件
              markGraphApplied: () => setGraphDirty(false),
              isGraphDirty: () => graphDirty };
 })();
