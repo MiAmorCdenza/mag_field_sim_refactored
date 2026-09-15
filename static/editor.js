@@ -415,6 +415,14 @@ window.editor = (function () {
         return box;
     }
 
+    // 节点图标标记(像素图优先,回退 emoji)—— 调色板/列表共用
+    function iconMarkup(spec) {
+        if (spec && spec.icon_img) {
+            return `<img class="node-icon" src="/icons/${spec.icon_img}.svg" alt="">`;
+        }
+        return `<span class="node-emoji">${(spec && spec.icon) || "•"}</span>`;
+    }
+
     function renderProps(node) {
         const body = document.getElementById("props-body");
         body.innerHTML = "";
@@ -954,7 +962,7 @@ registerRenderItem({
             const item = document.createElement("button");
             item.className = "palette-item";
             const comp = (spec.companions || []).length;
-            item.textContent = `${spec.icon || "⬡"} ${spec.name} · ${spec.category}` +
+            item.innerHTML = `${iconMarkup(spec)}<span>${spec.name} · ${spec.category}</span>` +
                 (comp ? `  (+${comp} 配套)` : "");
             item.onclick = () => {
                 hidePalette();

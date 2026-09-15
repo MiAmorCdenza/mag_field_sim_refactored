@@ -40,6 +40,28 @@ def register_node(**meta):
     return deco
 
 
+_ICON_MAP = None
+
+
+def _icon_img(ntype):
+    """节点类型 → 像素图名(tools/gen_icons.py 生成 static/icons/index.json)。
+
+    没有图标文件就返回 None,前端自动回退到节点规格里的 emoji —— 图标是
+    纯装饰,缺了不影响任何功能。
+    """
+    global _ICON_MAP
+    if _ICON_MAP is None:
+        import json
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "static", "icons", "index.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _ICON_MAP = json.load(f).get("types", {})
+        except Exception:
+            _ICON_MAP = {}
+    return _ICON_MAP.get(ntype)
+
 class Registry:
     def __init__(self, plugin_dirs):
         self.plugin_dirs = [os.path.abspath(d) for d in plugin_dirs]
@@ -116,6 +138,7 @@ class Registry:
                 "presets": s.get("presets"),  # 节点预设表(如粒子物种),前端下拉回填用
                 # 配套节点(#31):放置本节点时,若图中没有这些节点则一并放置
                 # (可选 wire = [本节点端口, 配套节点端口] 的自动连线)
+                "icon_img": _icon_img(s.get("type")),
                 "companions": s.get("companions") or [],
                 # 订阅通道(#32):渲染项声明它消费的数据通道;未接线 = 不订阅
                 # (不渲染 + 告警)。插件作者照此声明即可被宿主路由到对应帧

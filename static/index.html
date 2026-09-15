@@ -72,6 +72,15 @@
     }
     #sim-hud .dim { color: #8b949e; }
     #sim-hud .warn { color: #f0c674; }
+    /* 节点像素图(tools/gen_icons.py 生成 16x16 SVG;硬边放大) */
+    .dock-icon img, img.node-icon {
+        width: 16px; height: 16px; display: block;
+        image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .dock-icon { display: flex; align-items: center; }
+    .node-emoji { display: inline-block; width: 16px; text-align: center; }
+    #palette-list .palette-item img.node-icon,
+    #palette-list .palette-item .node-emoji { margin-right: 6px; }
     /* ---- 简化面板(#38):左侧 Dock ---- */
     #dock {
         flex: 0 0 300px; display: none; flex-direction: column; min-width: 0;

@@ -16,6 +16,7 @@ window.simpleUI = (function () {
     const MODE_KEY = "mf_ui_mode";
     const DOCK_KEY = "mf_dock_open";
     let groupOf = {};        // 节点类型 → 类别(来自 /api/nodes)
+    let iconOf = {};         // 节点类型 → 像素图名(来自 /api/nodes 的 icon_img)
     let expanded = {};       // "类别/节点id" → bool(记住展开状态)
 
     function el(id) { return document.getElementById(id); }
@@ -35,7 +36,10 @@ window.simpleUI = (function () {
         try {
             const types = await fetch("/api/nodes").then(r => r.json());
             groupOf = {};
-            for (const t of types) groupOf[t.type] = t.category || "其它";
+            for (const t of types) {
+                groupOf[t.type] = t.category || "其它";
+                if (t.icon_img) iconOf[t.type] = t.icon_img;
+            }
         } catch (e) {
             window.uiLog && window.uiLog("warn", "dock_specs", String(e));
         }
@@ -77,6 +81,13 @@ window.simpleUI = (function () {
         return g._nodes.filter(n => !n._isGhost && n._spec);
     }
 
+    // 像素图优先(16x16 SVG,硬边像素风);没有图才回退节点规格里的 emoji
+    function iconHtml(spec) {
+        const img = iconOf[spec.type];
+        if (img) return `<span class="dock-icon"><img src="/icons/${img}.svg" alt=""></span>`;
+        return `<span class="dock-icon">${spec.icon || "•"}</span>`;
+    }
+
     function build() {
         const box = el("dock-body");
         if (!box) return;
@@ -116,7 +127,7 @@ window.simpleUI = (function () {
                 row.className = "dock-node-head";
                 const isOpen = !!expanded[key];
                 row.innerHTML = `<span class="dock-caret">${isOpen ? "▾" : "▸"}</span>` +
-                    `<span class="dock-icon">${node._spec.icon || "•"}</span>` +
+                    iconHtml(node._spec) +
                     `<span class="dock-name">${node._spec.name || node._spec.type}</span>` +
                     `<span class="dock-id">${node.id}</span>`;
                 const body = document.createElement("div");
