@@ -7,6 +7,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -1129,10 +1130,30 @@ struct ServerApp::Impl {
             return crow::response(ss.str());
         });
         CROW_ROUTE(app, "/<path>")([this](std::string path) {
-            std::ifstream f(cfg.root + "/static/" + path);
             std::ostringstream ss;
             ss << f.rdbuf();
-            return crow::response(ss.str());
+            // MIME 必须按扩展名给:实测 SVG 被当 text/html 发出去时,<img> 直接
+            // 拒绝渲染(naturalWidth=0,破图占位)—— 状态码是 200,很容易误判
+            // 扩展名 → MIME(SVG 必须 image/svg+xml,否则 <img> 拒绝渲染:
+            // 状态码 200 但破图,实测踩过)。定义在路由内,避免 lambda 捕获问题
+            const std::string ext = [&path] {
+                const size_t d = path.find_last_of('.');
+                std::string e = d == std::string::npos ? "" : path.substr(d);
+                for (auto& c : e) c = (char)std::tolower((unsigned char)c);
+                return e;
+            }();
+            const char* mime = "application/octet-stream";
+            if (ext == ".svg") mime = "image/svg+xml";
+            else if (ext == ".css") mime = "text/css";
+            else if (ext == ".js") mime = "text/javascript";
+            else if (ext == ".json") mime = "application/json";
+            else if (ext == ".png") mime = "image/png";
+            else if (ext == ".jpg" || ext == ".jpeg") mime = "image/jpeg";
+            else if (ext == ".html") mime = "text/html; charset=utf-8";
+            else if (ext == ".txt" || ext == ".md") mime = "text/plain; charset=utf-8";
+            crow::response r(ss.str());
+            r.set_header("Content-Type", mime);
+            return r;
         });
 
         MFL("server", "listening", Info, "服务启动", (nlohmann::json{{"host", cfg.host}, {"port", cfg.port}, {"ws", "ws://.../ws"}}));

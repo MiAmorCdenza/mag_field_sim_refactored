@@ -84,8 +84,22 @@ window.simpleUI = (function () {
     // 像素图优先(16x16 SVG,硬边像素风);没有图才回退节点规格里的 emoji
     function iconHtml(spec) {
         const img = iconOf[spec.type];
-        if (img) return `<span class="dock-icon"><img src="/icons/${img}.svg" alt=""></span>`;
+        if (img) {
+            // onerror → 回退 emoji:服务器 MIME 不对或缺图标文件时不留破图
+            // (实测踩过:200 但 Content-Type=text/html → <img> 拒绝渲染)
+            const emo = (spec.icon || "•").replace(/"/g, "");
+            return '<span class="dock-icon"><img src="/icons/' + img + '.svg" alt=""' +
+                ' data-emoji="' + emo + '" onerror="simpleUI.iconFallback(this)"></span>';
+        }
         return `<span class="dock-icon">${spec.icon || "•"}</span>`;
+    }
+
+    // 图标加载失败 → 换成 emoji(内联 onerror 调用)
+    function iconFallback(el) {
+        const s = document.createElement("span");
+        s.className = "node-emoji";
+        s.textContent = el.getAttribute("data-emoji") || "•";
+        el.replaceWith(s);
     }
 
     function build() {
@@ -182,5 +196,5 @@ window.simpleUI = (function () {
     } else {
         init();
     }
-    return { build, onGraphLoaded, setMode, toggleMode, setDockOpen };
+    return { build, onGraphLoaded, setMode, toggleMode, setDockOpen, iconFallback };
 })();
