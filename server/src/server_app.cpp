@@ -1130,6 +1130,7 @@ struct ServerApp::Impl {
             return crow::response(ss.str());
         });
         CROW_ROUTE(app, "/<path>")([this](std::string path) {
+            std::ifstream f(cfg.root + "/static/" + path);
             std::ostringstream ss;
             ss << f.rdbuf();
             // MIME 必须按扩展名给:实测 SVG 被当 text/html 发出去时,<img> 直接
