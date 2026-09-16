@@ -75,7 +75,9 @@ def main():
         import numpy as np
         import time
         t0 = time.perf_counter()
-        baked = g.evaluate(sorted(doc.get("outputs") or {}) or ["B"])
+        # 用**引擎推导的**槽位(output_slot 节点)→ 多场对照预设也会全烘一遍
+        slots = sorted(g.outputs) or ["B"]
+        baked = g.evaluate(slots)
         dt = time.perf_counter() - t0
         for slot, fld in baked.items():
             arr = np.asarray(fld.data, dtype=float)

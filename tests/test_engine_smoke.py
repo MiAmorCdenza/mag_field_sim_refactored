@@ -291,14 +291,17 @@ def test_particle_domain():
     plan = g.particle_plan()
     kinds = [o["kind"] for o in plan["ops"]]
     # respawn(#35 持续创生)默认开启 → 出现在所有步进之后
-    assert kinds == ["emitter", "step", "step", "respawn", "encode"], kinds
+    assert kinds == ["emitter", "step", "respawn", "encode"], kinds   # #40:多积分器只留第一个
     # 注意:plan["count"] = **算子个数**(不是粒子数;粒子数在发射器算子里)
-    assert plan["slow_path"] is False and plan["count"] == 5
-    assert plan["ops"][0]["params"]["v_base"] == 500.0
-    assert plan["ops"][1]["kernel"] == "boris"
+    assert plan["slow_path"] is False and plan["count"] == 4
+    _step0 = next(o for o in plan["ops"] if o["kind"] == "step")
+    assert _step0["kernel"] == "boris"
+    assert plan["ops"][0]["params"]["v_base"] == 500.0   # ops[0] 仍是发射器
+    # #40:只有一个积分器了 → 按 kind 取,别按下标(ops[1] 现在是 respawn)
     assert plan["ops"][1]["slots"]["b"] == "B"
     assert plan["ops"][1]["slots"]["e"] is None
-    assert plan["ops"][2]["kernel"] == "rk4"
+    # #40:第二个积分器(rk4)被规则剔除,不再出现在计划里
+    assert not any(o.get("kernel") == "rk4" for o in plan["ops"]), plan["ops"]
     print("✓ particle_plan 编译正确(order 排序/内核/槽位解析)")
 
     # 未知粒子域类型 → slow_path(成本徽标)
@@ -306,7 +309,7 @@ def test_particle_domain():
     try:
         plan2 = g.particle_plan()
         assert plan2["slow_path"] is True
-        assert plan2["count"] == 4  # 未知类型被跳过(3 个已知算子 + respawn)
+        assert plan2["count"] == 3  # 未知类型被跳过 + #40 只留一个积分器
     finally:
         Graph._PARTICLE_OP_KINDS["output_encoder"] = saved
     print("✓ 未知粒子域类型 → slow_path 标志")

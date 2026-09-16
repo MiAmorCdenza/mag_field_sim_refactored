@@ -92,10 +92,15 @@ window.renderHost = (function () {
         items.delete(id);
     }
 
-    // ---- 帧分发:按 kind 路由到订阅项 ----
+    // ---- 帧分发:按 kind 路由到订阅项;几何帧再按 node 精确投递 ----
+    // 几何帧是**每个渲染节点各自的**(帧头带 node):若只按 kind 广播给所有
+    // 订阅项,两个场线项会互相画对方的线 —— 实测偶极(蓝)+A2000(橙)两套
+    // 场线叠加成灰白,参数明明正确却看不出颜色差异(#41 踩坑)。
     function dispatch(kind, frame, meta) {
+        const only = meta && (meta.node || meta.node_id);
         for (const inst of items.values()) {
             const subs = inst.subscribes || [];
+            if (only && inst.id !== only) continue;
             if (subs.includes(kind)) {
                 try {
                     inst.onData.call(inst, frame, meta || {});

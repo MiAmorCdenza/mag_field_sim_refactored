@@ -1,0 +1,262 @@
+{
+ "preset": {
+  "id": "paraboloid",
+  "name": "A2000 抛物面磁层",
+  "desc": "A2000/CPMOD 内磁场:偶极 + 环电流 + 尾电流 + 磁层顶屏蔽 + Region-1 FAC + 穿透 IMF;Dst 决定环电流强度。与「标准偶极子 · 单粒子」对照可见日侧压缩、夜侧拉伸与内区削弱。",
+  "sort": 45
+ },
+ "version": 1,
+ "lattice": {
+  "preset": "tiny"
+ },
+ "nodes": [
+  {
+   "id": "pb",
+   "type": "paraboloid",
+   "input_defaults": {
+    "dst": -30.0,
+    "rho": 5.0,
+    "v": 400.0,
+    "al": -100.0,
+    "by": 0.0,
+    "bz": -2.0
+   },
+   "params": {
+    "year": 2026,
+    "month": 9,
+    "day": 16,
+    "ut": 1.0
+   },
+   "pos": [
+    60,
+    80
+   ]
+  },
+  {
+   "id": "ob",
+   "type": "output_slot",
+   "params": {
+    "slot": "B"
+   },
+   "pos": [
+    320,
+    80
+   ]
+  },
+  {
+   "id": "pop",
+   "type": "particle_population",
+   "params": {
+    "order": 20,
+    "rows": [
+     {
+      "preset": "proton",
+      "name": "质子",
+      "q": 1.0,
+      "mass": 1.0,
+      "v_mult": 1.0,
+      "weight": 2.0,
+      "color": "#ff5555",
+      "enabled": true
+     },
+     {
+      "preset": "electron",
+      "name": "电子",
+      "q": -1.0,
+      "mass": 0.0005446623093681911,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#5599ff",
+      "enabled": true
+     }
+    ]
+   },
+   "pos": [
+    320,
+    300
+   ]
+  },
+  {
+   "id": "pe",
+   "type": "particle_emitter",
+   "params": {
+    "order": 10,
+    "mode": 2,
+    "lon": 0.0,
+    "lat": 0.0,
+    "v_base": 400.0,
+    "v_random": 20.0,
+    "angle_random": 100.0,
+    "dist_ratio": 0.01,
+    "spawn_radius_ratio": 1.0,
+    "max_range": 5.0,
+    "count": 2000
+   },
+   "pos": [
+    560,
+    300
+   ]
+  },
+  {
+   "id": "bi",
+   "type": "boris_integrator",
+   "params": {
+    "order": 30,
+    "dt": 0.01,
+    "substeps": 5,
+    "max_range": 14.0,
+    "substep_cap": 60
+   },
+   "pos": [
+    780,
+    300
+   ]
+  },
+  {
+   "id": "enc",
+   "type": "output_encoder",
+   "params": {
+    "order": 40
+   },
+   "pos": [
+    980,
+    300
+   ]
+  },
+  {
+   "id": "rp",
+   "type": "render_pipeline_start",
+   "params": {
+    "fps_cap": 60
+   },
+   "pos": [
+    560,
+    60
+   ]
+  },
+  {
+   "id": "rfl",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1,
+    "color_mode": "bmag",
+    "opacity": 0.8
+   },
+   "pos": [
+    780,
+    60
+   ]
+  },
+  {
+   "id": "rpt",
+   "type": "render_item_particles",
+   "params": {
+    "layer": 2,
+    "size": 0.06
+   },
+   "pos": [
+    980,
+    60
+   ]
+  },
+  {
+   "id": "rtrl",
+   "type": "render_item_particle_trails",
+   "params": {
+    "layer": 2,
+    "trail_length": 20
+   },
+   "pos": [
+    1180,
+    60
+   ]
+  },
+  {
+   "id": "tilt",
+   "type": "tilt_source",
+   "params": {
+    "year": 2026,
+    "month": 6,
+    "day": 21,
+    "ut": 12.0
+   },
+   "pos": [
+    60,
+    360
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "pb",
+    "field"
+   ],
+   "to": [
+    "ob",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "bi",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "rfl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "pop",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "tilt",
+    "ps"
+   ],
+   "to": [
+    "pb",
+    "ps"
+   ]
+  }
+ ],
+ "outputs": {}
+}

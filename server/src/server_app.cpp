@@ -301,6 +301,25 @@ struct ServerApp::Impl {
         broadcast_text(payload);
     }
 
+    // 槽位名 → 声明它的节点 id(UI 显示"粒子场源",#41)
+    // ⚠ 调用方**必须已持有 st.m**:本函数不再自己加锁 —— 两处调用点都在 st.m
+    //    临界区里,若在此再次 lock_guard → std::mutex 非递归 → **死锁**,
+    //    仿真线程卡死、烘焙结果永远应用不上(实测踩过:所有模型都"算不出来")
+    std::string field_source_of_locked(const std::string& slot) {
+        json gdoc = json::parse(st.graph_json, nullptr, false);
+        if (gdoc.is_discarded() || !gdoc.contains("outputs")) return "";
+        auto& outs = gdoc["outputs"];
+        if (!outs.contains(slot) || !outs[slot].is_array() || outs[slot].empty())
+            return "";
+        return outs[slot][0].is_string() ? outs[slot][0].get<std::string>() : "";
+    }
+
+    // 自身加锁的版本:**只能在 st.m 临界区之外调用**(计划应用处就是这种情况)
+    std::string field_source_of(const std::string& slot) {
+        std::lock_guard<std::mutex> g(st.m);
+        return field_source_of_locked(slot);
+    }
+
     // 提交烘焙请求(latest-wins)
     void submit_bake() {
         std::lock_guard<std::mutex> g(st.m);
@@ -395,11 +414,9 @@ struct ServerApp::Impl {
             auto it = slot_of.find({src, sport});
             if (it == slot_of.end()) continue;
             const std::string& slot = it->second;
-            const Table3D* table = nullptr;
-            if (slot == "B") table = &pipeline->b_table;
-            else if (slot == "E") table = &pipeline->e_table;
-            else if (slot == "drag") table = &pipeline->drag_table;
-            if (!table || !table->has_data()) continue;
+            // 多场槽位(#41):按名取表(任意磁场槽位都能追溯场线)
+            const Table3D* table = pipeline->table_for(slot);
+            if (!table) continue;
             if (type != "render_item_field_lines" && type != "render_item_efield_lines")
                 continue;
 
@@ -554,6 +571,8 @@ struct ServerApp::Impl {
                         }
                         if (changed) {
                             json m{{"type", "plan_status"}, {"slow_path", slow},
+                                   {"b_slot", pipeline->step_b_slot()},
+                                   {"b_source", field_source_of(pipeline->step_b_slot())},
                                    {"count", pcount},
                                    {"degenerate_injection", degen},
                                    {"respawn", pipeline->has_respawn()},
@@ -652,7 +671,7 @@ struct ServerApp::Impl {
             }
 
             // 3) 物理步进(首次烘焙完成前不积分:空表步进无物理意义)
-            if (pipeline->b_table.has_data()) pipeline->step_frame();
+            if (pipeline->b_table().has_data()) pipeline->step_frame();
 
             // 3b) 运行期诊断(#35):无重生且死伤过半 → population_decaying。
             //     计划状态平时只在"计划变化"时广播,这里为运行期变化补一条
@@ -669,6 +688,8 @@ struct ServerApp::Impl {
                     st.plan_warnings_json = wj.dump();
                     st.plan_warnings = wj;
                     status = json{{"type", "plan_status"},
+                                  {"b_slot", pipeline->step_b_slot()},
+                                  {"b_source", field_source_of_locked(pipeline->step_b_slot())},
                                   {"slow_path", st.plan_slow_path},
                                   {"count", st.plan_notice_count},
                                   {"degenerate_injection", st.plan_degenerate},
@@ -947,6 +968,12 @@ struct ServerApp::Impl {
                                 st.source_preview_json.clear();  // 旧预览同理作废
                                 st.population_json.clear();      // 种群读数随图作废
                                 st.plan_status_json.clear();     // 旧计划状态随图作废
+                                // 同时清掉"上次广播"标记:否则**重复上传同一张图**时
+                                // 变化判定为 false → 不广播 → 缓存永远空 → 新连接
+                                // 拿不到 plan_status(实测 HUD 里计划/场源整行消失)
+                                st.plan_warnings_json.clear();
+                                st.plan_implicit_json.clear();
+                                st.plan_notice_count = -1;
                                 if (pipeline) pipeline->reset_sim_time();  // 换图 → t 归零
                                 if (plan_ok) {
                                     st.particle_plan_json = plan_json;

@@ -24,6 +24,14 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
     plan = p;
     max_range = 90.0;
     warnings_ = p.warnings;   // 编译期诊断(含 step_no_b / no_encoder …)
+    // 积分器实际使用的磁场槽位(#41):多场并存时粒子只走这一张表
+    step_b_slot_ = "B";
+    for (const auto& op0 : plan.ops) {
+        if (op0.kind == OpKind::Step && !op0.step.b_slot.empty()) {
+            step_b_slot_ = op0.step.b_slot;
+            break;
+        }
+    }
     has_encoder_ = false;
     has_step_op_ = false;
     has_respawn_ = false;          // ⚠ 必须复位:否则旧计划的标记会残留
@@ -88,7 +96,7 @@ bool SimPipeline::set_plan(const Plan& p, std::string& err) {
         break;
     }
     // 俯仰角模式需要局部 B:绑定本管线的 B 表(spawn 时实时采样)
-    emitter.set_field(&b_table);
+    emitter.set_field(&b_table());   // 指向积分器实际使用的磁场槽位
     // 注入 + count>1 = 所有粒子初条件完全相同(确定性 mode 3 零随机扰动)
     // → N 个粒子精确重合,视觉上仍是 1 个(用户实测踩到过)。此处只标记,
     // 由上层写日志/广播 plan_status 告警。
@@ -117,11 +125,12 @@ void SimPipeline::reapply_species() {
 bool SimPipeline::install_baked(const BakedField& f, std::string& err) {
     Table3D* t = nullptr;
     bool scale_to_normalized = false;
-    if (f.slot == "B") { t = &b_table; scale_to_normalized = true; }
-    else if (f.slot == "E") { t = &e_table; }           // 节点已输出归一化单位
-    else if (f.slot == "drag") { t = &drag_table; }      // 无量纲系数
-    else if (f.slot == "gravity") { t = &drag_table; }   // v1 引力走解析;槽位预留
-    else { err = "未知槽位: " + f.slot; return false; }
+        // 多场槽位(#41):任意槽位名都建表(以前只认 B/E/drag/gravity,第二个磁场
+    // 会被直接丢掉)。命名以 "B" 开头视为磁场 → nT 转归一化单位;
+    // 其它槽位按"已输出归一化/无量纲量"处理(沿用旧约定)。
+    if (f.slot.empty()) { err = "槽位名为空"; return false; }
+    t = &tables_[f.slot];
+    scale_to_normalized = (f.slot.rfind("B", 0) == 0);
 
     if (f.is_vector) {
         if (scale_to_normalized) {
@@ -143,9 +152,8 @@ bool SimPipeline::install_baked(const BakedField& f, std::string& err) {
 }
 
 const Table3D* SimPipeline::table_for(const std::string& slot) const {
-    if (slot == "B" && b_table.has_data()) return &b_table;
-    if (slot == "E" && e_table.has_data()) return &e_table;
-    if (slot == "drag" && drag_table.has_data()) return &drag_table;
+        auto it = tables_.find(slot);
+    if (it != tables_.end() && it->second.has_data()) return &it->second;
     return nullptr;
 }
 
@@ -223,12 +231,12 @@ SourcePreview SimPipeline::source_preview() const {
     // 局部 B(表内为归一化单位;越界钳制 → 显式提示"点在表域外")
     Vec3 b(0, 0, 0);
     bool outside = false;
-    if (inj.vel_mode != 1 && b_table.has_data()) {
-        b_table.sample(sp.pos.x, sp.pos.y, sp.pos.z, b.x, b.y, b.z);
+    if (inj.vel_mode != 1 && b_table().has_data()) {
+        b_table().sample(sp.pos.x, sp.pos.y, sp.pos.z, b.x, b.y, b.z);
         const double eps = 1e-9;
-        outside = sp.pos.x < b_table.xs.front() - eps || sp.pos.x > b_table.xs.back() + eps ||
-                  sp.pos.y < b_table.ys.front() - eps || sp.pos.y > b_table.ys.back() + eps ||
-                  sp.pos.z < b_table.zs.front() - eps || sp.pos.z > b_table.zs.back() + eps;
+        outside = sp.pos.x < b_table().xs.front() - eps || sp.pos.x > b_table().xs.back() + eps ||
+                  sp.pos.y < b_table().ys.front() - eps || sp.pos.y > b_table().ys.back() + eps ||
+                  sp.pos.z < b_table().zs.front() - eps || sp.pos.z > b_table().zs.back() + eps;
     }
     bool has_b = false;
     sp.v_dir = injection_velocity(inj, b, has_b, sp.v_kms);
@@ -262,7 +270,7 @@ SourcePreview SimPipeline::source_preview() const {
     if (sp.note.empty()) {                               // 无钳制时才写常规提示
         if (inj.vel_mode == 1) {
             sp.note = "vxyz:方向直接给定(不依赖 B)";
-        } else if (!b_table.has_data()) {
+        } else if (!b_table().has_data()) {
             sp.note = "B 表未烘焙:方向回退 z 轴";
         } else if (outside) {
             sp.note = "注入点在 B 表域外(采样被钳制)";

@@ -2,6 +2,7 @@
 // 无粒子域节点时使用默认后备计划(行为与 legacy 硬编码管线位级一致)。
 #pragma once
 #include <algorithm>
+#include <map>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -45,7 +46,20 @@ struct SourcePreview {
 
 class SimPipeline {
 public:
-    Table3D b_table, e_table, drag_table;
+    // 多场槽位(#41):槽位名 → 场表,支持任意多个磁场节点并存(对照用)。
+    // 粒子只走"积分器 b 输入所接的那一个槽位"(step_b_slot_)。
+    std::map<std::string, Table3D> tables_;
+    std::string step_b_slot_ = "B";
+    Table3D& table(const std::string& slot) { return tables_[slot]; }
+    Table3D& b_table() { return table(step_b_slot_); }   // 命名兼容:磁场表
+    // 积分器实际使用的磁场槽位名(UI 显示"粒子用哪个场",#41)
+    const std::string& step_b_slot() const { return step_b_slot_; }
+    // const 版本(source_preview 等 const 方法要用;缺表时给空表 → has_data()=false)
+    const Table3D& b_table() const {
+        auto it = tables_.find(step_b_slot_);
+        return it != tables_.end() ? it->second : empty_table();
+    }
+    static const Table3D& empty_table() { static Table3D t; return t; }
     Particles particles;
     Plan plan;                 // 当前执行计划
     Emitter emitter;           // 运行时发射器(计划 EmitterOp 或后备配置)

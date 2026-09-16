@@ -75,3 +75,53 @@ class ImfSourceNode(Node):
         data[..., 1] = by
         data[..., 2] = bz
         return {"field": Field("vector", data, lat)}
+
+
+@register_node(
+    type="tilt_source",
+    name="倾角源(日期→倾角)", category="来源", icon="📐",
+    inputs={},
+    outputs={"ps": "scalar", "bd": "scalar"},
+    params={
+        "year": Param("int", default=2026, min=1901, max=2099,
+                      desc="日期 → 倾角(与 IGRF 偶极强度)"),
+        "month": Param("int", default=6, min=1, max=12),
+        "day": Param("int", default=21, min=1, max=31),
+        "ut": Param("scalar", default=12.0, min=0.0, max=24.0,
+                    desc="UT 小时(含小数):倾角有周日变化"),
+    },
+    version=1,
+)
+class TiltSourceNode(Node):
+    """日期/UT → **偶极倾角 ps(度)** 与赤道偶极场 B0(nT)。
+
+    直接调用 A2000 模型自己的 `TRANS/IDD`(models/a2000.dll),因此与
+    `A2000 抛物面(内场)` 内部用的倾角**完全一致**(实测 Δψ = 0);同一个倾角源
+    可以同时喂 偶极子 / T89 / A2000 → 三者倾角严格相同,对照才有意义。
+
+    物理:倾角季节变化 ±23.4°(二至点最大、二分点≈0),另有周日摆动
+    (偶极轴相对日地线的投影);B0 随年份缓慢减小(IGRF 长期变化 ≈ −18 nT/年)。
+    """
+
+    def compute(self):
+        try:
+            from nodes._a2000_dll import _load_lib, _StdoutSilencer
+        except ImportError:
+            from _a2000_dll import _load_lib, _StdoutSilencer
+        lib = _load_lib()
+        if lib is None:
+            raise GraphError("倾角源需要 models/a2000.dll:先运行 "
+                             "scripts\\build_a2000.ps1(与 A2000 节点同源,"
+                             "保证倾角换算与模型内部逐位一致)")
+        import ctypes
+        psi = ctypes.c_double(0.0)
+        bd = ctypes.c_double(0.0)
+        with _StdoutSilencer():
+            lib.a2000_tilt(float(self.params["ut"]), int(self.params["year"]),
+                           int(self.params["month"]), int(self.params["day"]),
+                           ctypes.byref(psi), ctypes.byref(bd))
+        # ⚠ 符号约定:A2000 的 par(1) 与 geopack/T89/本项目 ps **相反**(实测:
+        # 夏至时模型内部 ψ=−25.8°,而它给出的场等效于我们的 ps=+25.8°,
+        # 判据 = 赤道侧面 (0,2,0) 的 B_x 符号)。这里取负,统一成
+        # "北轴朝日为正式"的标准约定,避免一个倾角源喂出两种朝向。
+        return {"ps": -float(psi.value), "bd": float(bd.value)}

@@ -52,6 +52,23 @@ window.protocol = (function () {
             // 持续创生(#35):关掉会衰减,直接写在 HUD 上省得用户猜
             if (plan.respawn === false) bits.push("无重生(会衰减)");
         }
+        // 粒子场源(#41):多场并存时,粒子只走积分器 b 输入所接的那一个槽位
+        if (plan.b_slot) {
+            let name = plan.b_source || "";
+            const g = window.editor && window.editor.graph;
+            if (name && g && g._nodes) {
+                // 编辑器里 node.id 是 LiteGraph 的数字 id,图 JSON 的 id 在
+                // properties 里(实测按数字/字符串直接比会匹配失败)
+                const n = g._nodes.find(x => x && (
+                    x.id === name || String(x.id) === name ||
+                    x.title === name ||
+                    (x.properties && (x.properties.spec_id === name ||
+                                      x.properties.id === name ||
+                                      x.properties.node_id === name))));
+                if (n) name = n.title || (n._spec && n._spec.name) || name;
+            }
+            bits.push("场源 " + plan.b_slot + (name ? " ← " + name : ""));
+        }
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
         }

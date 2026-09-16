@@ -31,57 +31,12 @@ import numpy as np
 
 from engine import register_node, Node, Port, Param, Field, GraphError
 
-_MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           "models")
-_LIB = None            # ctypes 句柄(进程内只加载一次)
-_LIB_ERR = None
-
-
-def _load_lib():
-    """加载 A2000 DLL(带 gfortran 运行库目录);失败时给出可执行的修复提示。"""
-    global _LIB, _LIB_ERR
-    if _LIB is not None or _LIB_ERR is not None:
-        return _LIB
-    dll = os.path.join(_MODELS_DIR, "a2000.dll")
-    if not os.path.exists(dll):
-        _LIB_ERR = (f"缺少 {dll}:先运行 scripts\\build_a2000.ps1 编译"
-                    f"(需要 64 位 gfortran)")
-        return None
-    try:
-        os.add_dll_directory(_MODELS_DIR)      # gfortran 运行库就在旁边
-        lib = ctypes.CDLL(dll)
-        D, P, I = ctypes.c_double, ctypes.POINTER(ctypes.c_double), ctypes.c_int
-        lib.a2000_set_time.argtypes = [D, I, I, I]
-        lib.a2000_params.argtypes = [D, D, P, D, D, P, ctypes.POINTER(I)]
-        lib.a2000_field.argtypes = [P, P, P, P]
-        lib.a2000_batch.argtypes = [P, I, P, P, P]
-        lib.a2000_set_sources.argtypes = [D] * 7
-        lib.a2000_set_sources(1, 1, 1, 1, 1, 1, 1)   # 官方"全开"初始化
-        _LIB = lib
-    except OSError as e:
-        _LIB_ERR = f"加载 a2000.dll 失败:{e}"
-        return None
-    return _LIB
-
-
-class _StdoutSilencer:
-    """临时把进程 fd 1 指向空设备。
-
-    模型内部有若干 PRINT(贝塞尔函数的异常分支会打印),逐点调用会刷爆服务器
-    日志 —— 磁盘 fd 级屏蔽比改源码更干净(源码保持与官方一致)。
-    """
-
-    def __enter__(self):
-        self._saved = os.dup(1)
-        self._null = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(self._null, 1)
-        return self
-
-    def __exit__(self, *exc):
-        os.dup2(self._saved, 1)
-        os.close(self._null)
-        os.close(self._saved)
-        return False
+# DLL 加载器抽到共享模块(节点按文件路径加载,彼此无法用模块名互相 import):
+# `paraboloid` 与 `tilt_source` 共用同一个句柄,进程内只加载一次。
+try:
+    from nodes._a2000_dll import _load_lib, _StdoutSilencer, _MODELS_DIR
+except ImportError:      # 兜底:某些启动方式下仓库根不在 sys.path
+    from _a2000_dll import _load_lib, _StdoutSilencer, _MODELS_DIR
 
 
 @register_node(
@@ -89,6 +44,11 @@ class _StdoutSilencer:
     name="A2000 抛物面(内场)", category="磁场/内部场", icon="🧭",
     cost="expensive",
     inputs={
+        # 倾角统一为显式输入(#42):留空(None)= 用日期/UT 由模型自己算;
+        # 接了「倾角源」→ 覆盖 par(1)。同一个倾角源可以同时喂偶极子/T89/A2000,
+        # 三者倾角严格一致,对照实验才成立
+        "ps": Port("scalar", default=None,
+                   desc="偶极倾角(度):留空 = 由日期/UT 算;填了覆盖 par(1)"),
         "dst": Port("scalar", default=-30.0,
                     desc="Dst 指数 nT(决定环电流强度:BR = Dst − 10)"),
         "rho": Port("scalar", default=5.0, min=0.1,
@@ -123,7 +83,7 @@ class ParaboloidNode(Node):
         super().__init__(*a, **kw)
         self.last_par = None      # 最近一次的 par(1..10),便于测试/诊断读数
 
-    def compute(self, dst, rho, v, al, by, bz):
+    def compute(self, ps, dst, rho, v, al, by, bz):
         lib = _load_lib()
         if lib is None:
             raise GraphError(_LIB_ERR)
@@ -154,6 +114,10 @@ class ParaboloidNode(Node):
             if ifail.value != 0:
                 raise GraphError(f"A2000 参数非法(ifail={ifail.value}):"
                                  f"检查 ρ>0、V>0")
+            if ps is not None:
+                # ⚠ 符号约定:par(1) 与我们的 ps 相反(实测:赤道侧面 (0,2,0)
+                # 的 B_x 符号;夏至 A2000 内部 ψ=−25.8° 等效于 ps=+25.8°)→ 取负
+                par[0] = -float(ps)     # 日期仍决定 par(2) 偶极强度
             bm = np.zeros((n, 3), dtype=np.float64)
             bb = np.zeros((7, n, 3), dtype=np.float64)
             lib.a2000_batch(par.ctypes.data_as(P), n, pts.ctypes.data_as(P),

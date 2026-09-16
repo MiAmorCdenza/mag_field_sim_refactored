@@ -611,6 +611,12 @@ class Graph:
                         "msg": f"步进算子 {nid} 没有连接磁场槽位:"
                                f"粒子将不受磁场力(直线飞行)",
                     })
+                elif op["slots"]["b"] and not str(op["slots"]["b"]).startswith("B"):
+                    warnings.append({
+                        "code": "step_slot_not_magnetic", "node": nid, "port": "b",
+                        "msg": f"积分器 {nid} 的磁场槽位「{op['slots']['b']}」不以 B 开头:"
+                               f"服务器按'已归一化'处理,不做 nT 换算(仅 B* 槽位做)",
+                    })
                 elif op["slots"]["b"] is None:
                     warnings.append({
                         "code": "step_slot_unresolved", "node": nid, "port": "b",
@@ -656,6 +662,21 @@ class Graph:
             except (TypeError, ValueError):
                 op["order"] = self._PARTICLE_OP_ORDER.get(op["kind"], 999)
         ops.sort(key=lambda o: (o["order"], o["node"]))
+        # ---- 只允许一个积分器(#41)----
+        # 以前所有 step 算子都会被收集并**依次执行** → 两个积分器会把同一批粒子
+        # 推进两次(静默的物理错误)。这里按 (order, node) 只留第一个,
+        # 其余丢弃并逐个告警(UI 会把它们标出来)。
+        step_ops = [o for o in ops if o["kind"] == "step"]
+        if len(step_ops) > 1:
+            keep = step_ops[0]
+            for extra in step_ops[1:]:
+                warnings.append({
+                    "code": "multiple_step_ops", "node": extra["node"],
+                    "msg": f"图里有多个积分器:只允许一个。已采用 "
+                           f"{keep['node']},忽略 {extra['node']}"
+                           f"(多个积分器会把同一批粒子重复推进)",
+                })
+            ops = [o for o in ops if o["kind"] != "step" or o is keep]
         kinds = {o["kind"] for o in ops}
         # 注入节点未被发射器 init 覆盖 → 不生效(#30:接线决定归属)
         inj_nodes = [nid for nid in pnodes

@@ -91,3 +91,20 @@ subroutine a2000_set_sources(x1, x2, x3, x4, x5, x6, x7) &
     real(c_double), value :: x1, x2, x3, x4, x5, x6, x7
     call PSTATUS(x1, x2, x3, x4, x5, x6, x7)
 end subroutine a2000_set_sources
+! 日期 → 倾角(以及赤道偶极场 B0):**直接调用模型自己的 TRANS/IDD**,
+! 保证"换算器"与 A2000 内部用的是同一份数学(实测 ψ 完全一致)。
+! 用途:把倾角统一成显式输入(#42)后,一个倾角源可以同时喂
+! 偶极子 / T89 / A2000,三者的倾角严格一致,对照才有意义。
+!   ut: UT 小时(含小数);iy/mo/id: 年/月/日
+!   psi: 倾角(度,进入模型 par(1));bd: 赤道偶极场(nT,即 par(2))
+subroutine a2000_tilt(ut, iy, mo, id, psi, bd) bind(C, name="a2000_tilt")
+    use iso_c_binding
+    implicit none
+    real(c_double), value :: ut
+    integer(c_int), value :: iy, mo, id
+    real(c_double) :: psi, bd
+    integer :: iday
+    integer, external :: IDD          ! 源码里的 INTEGER FUNCTION,必须显式声明
+    iday = IDD(iy, mo, id)
+    call TRANS(ut, iday, iy, psi, bd)
+end subroutine a2000_tilt

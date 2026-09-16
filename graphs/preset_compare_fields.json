@@ -1,0 +1,327 @@
+{
+ "preset": {
+  "id": "compare_fields",
+  "name": "磁场对照:偶极 vs A2000",
+  "desc": "一张图里并存两个磁场:偶极(蓝,仅参考显示)驱动 vs A2000 抛物面(橙,含环电流/尾电流/磁层顶屏蔽)—— 粒子只走 A2000。看两套场线拓扑差异:日侧压缩、夜侧拉伸、内区色标差异。",
+  "sort": 50
+ },
+ "version": 1,
+ "lattice": {
+  "preset": "tiny"
+ },
+ "nodes": [
+  {
+   "id": "dip",
+   "type": "dipole",
+   "input_defaults": {
+    "ps": 0.5
+   },
+   "pos": [
+    60,
+    40
+   ]
+  },
+  {
+   "id": "ob2",
+   "type": "output_slot",
+   "params": {
+    "slot": "B2"
+   },
+   "pos": [
+    300,
+    40
+   ]
+  },
+  {
+   "id": "pb",
+   "type": "paraboloid",
+   "input_defaults": {
+    "dst": -50.0,
+    "rho": 5.0,
+    "v": 400.0,
+    "al": -100.0,
+    "by": 0.0,
+    "bz": -2.0
+   },
+   "params": {
+    "year": 2026,
+    "month": 9,
+    "day": 16,
+    "ut": 1.0
+   },
+   "pos": [
+    60,
+    200
+   ]
+  },
+  {
+   "id": "ob",
+   "type": "output_slot",
+   "params": {
+    "slot": "B"
+   },
+   "pos": [
+    300,
+    200
+   ]
+  },
+  {
+   "id": "pop",
+   "type": "particle_population",
+   "params": {
+    "order": 20,
+    "rows": [
+     {
+      "preset": "proton",
+      "name": "质子",
+      "q": 1.0,
+      "mass": 1.0,
+      "v_mult": 1.0,
+      "weight": 2.0,
+      "color": "#ff5555",
+      "enabled": true
+     },
+     {
+      "preset": "electron",
+      "name": "电子",
+      "q": -1.0,
+      "mass": 0.0005446623093681911,
+      "v_mult": 1.0,
+      "weight": 1.0,
+      "color": "#5599ff",
+      "enabled": true
+     }
+    ]
+   },
+   "pos": [
+    300,
+    400
+   ]
+  },
+  {
+   "id": "pe",
+   "type": "particle_emitter",
+   "params": {
+    "order": 10,
+    "mode": 2,
+    "lon": 0.0,
+    "lat": 0.0,
+    "v_base": 400.0,
+    "v_random": 20.0,
+    "angle_random": 100.0,
+    "dist_ratio": 0.01,
+    "spawn_radius_ratio": 1.0,
+    "max_range": 5.0,
+    "count": 1500
+   },
+   "pos": [
+    560,
+    400
+   ]
+  },
+  {
+   "id": "bi",
+   "type": "boris_integrator",
+   "params": {
+    "order": 30,
+    "dt": 0.01,
+    "substeps": 5,
+    "max_range": 14.0,
+    "substep_cap": 60
+   },
+   "pos": [
+    780,
+    400
+   ]
+  },
+  {
+   "id": "enc",
+   "type": "output_encoder",
+   "params": {
+    "order": 40
+   },
+   "pos": [
+    980,
+    400
+   ]
+  },
+  {
+   "id": "rp",
+   "type": "render_pipeline_start",
+   "params": {
+    "fps_cap": 60
+   },
+   "pos": [
+    560,
+    200
+   ]
+  },
+  {
+   "id": "rfl_a",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1,
+    "color": "#ff9b6a",
+    "opacity": 0.85
+   },
+   "pos": [
+    780,
+    200
+   ]
+  },
+  {
+   "id": "rfl_d",
+   "type": "render_item_field_lines",
+   "params": {
+    "layer": 1,
+    "color": "#4da6ff",
+    "opacity": 0.4
+   },
+   "pos": [
+    780,
+    40
+   ]
+  },
+  {
+   "id": "rpt",
+   "type": "render_item_particles",
+   "params": {
+    "layer": 2,
+    "size": 0.06
+   },
+   "pos": [
+    980,
+    200
+   ]
+  },
+  {
+   "id": "rtrl",
+   "type": "render_item_particle_trails",
+   "params": {
+    "layer": 2,
+    "trail_length": 16
+   },
+   "pos": [
+    1180,
+    200
+   ]
+  },
+  {
+   "id": "tilt",
+   "type": "tilt_source",
+   "params": {
+    "year": 2026,
+    "month": 6,
+    "day": 21,
+    "ut": 12.0
+   },
+   "pos": [
+    60,
+    360
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "from": [
+    "dip",
+    "field"
+   ],
+   "to": [
+    "ob2",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "pb",
+    "field"
+   ],
+   "to": [
+    "ob",
+    "field"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "bi",
+    "b"
+   ]
+  },
+  {
+   "from": [
+    "ob",
+    "out"
+   ],
+   "to": [
+    "rfl_a",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "ob2",
+    "out"
+   ],
+   "to": [
+    "rfl_d",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "pop",
+    "types"
+   ],
+   "to": [
+    "pe",
+    "types"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rpt",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "enc",
+    "particles"
+   ],
+   "to": [
+    "rtrl",
+    "data"
+   ]
+  },
+  {
+   "from": [
+    "tilt",
+    "ps"
+   ],
+   "to": [
+    "pb",
+    "ps"
+   ]
+  },
+  {
+   "from": [
+    "tilt",
+    "ps"
+   ],
+   "to": [
+    "dip",
+    "ps"
+   ]
+  }
+ ],
+ "outputs": {}
+}

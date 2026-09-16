@@ -107,6 +107,10 @@ async def main():
     for n in off["nodes"]:
         if n["id"] == "pe":
             n["params"]["respawn"] = False
+        if n["id"] == "bi":
+            # 测试只关心"死伤过半是否告警",让仿真时间快进(substeps 2→20),
+            # 否则要等服务器跑满几十秒仿真时间,负载一高就等不到
+            n["params"]["substeps"] = 20
 
     # ---- 1) respawn=false:编译期告警 + 运行期衰减 --------------------
     print("=== respawn=false(一次性播撒,应衰减并告警)")
