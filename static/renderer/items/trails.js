@@ -125,14 +125,21 @@ registerRenderItem({
                 slot.id = id;
                 slot.idx = 0;
                 slot.cnt = 0;
+                slot.lx = slot.ly = slot.lz = undefined;   // 新粒子:强制压入首点
                 for (let j = 0; j < L; ++j) {
                     slot.buf[j * 3] = px;
                     slot.buf[j * 3 + 1] = py;
                     slot.buf[j * 3 + 2] = pz;
                 }
             }
-            // 存活:追加历史点;死亡:冻结(不回填)
-            if (status === 0) {
+            // 存活**且真的移动了**才追加历史点。
+            // 暂停时服务器仍按帧广播同一批位置(为了让新连接拿到冻结态),若每帧都
+            // 压点,环形缓冲会被同一个点填满 → 轨迹缩成一点,看起来"拖尾消失了"。
+            const moved = slot.lx === undefined ||
+                Math.abs(px - slot.lx) + Math.abs(py - slot.ly) +
+                Math.abs(pz - slot.lz) > 1e-6;
+            if (status === 0 && moved) {
+                slot.lx = px; slot.ly = py; slot.lz = pz;
                 const w = slot.idx * 3;
                 slot.buf[w] = px;
                 slot.buf[w + 1] = py;

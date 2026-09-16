@@ -10,8 +10,14 @@
 //
 // 共同行为:悬停高亮 · 拖动时派发 window resize(three.js 重适配画布) ·
 // 尺寸记忆在 localStorage · 双击恢复默认。
+//
+// ⚠ 关键修正:记忆值**只在对应分割条可见(即当前模式有效)时套用**。
+//   曾经无条件套用 → 在标准模式测出的右栏宽度 720px 被套进简化模式的 #right,
+//   把右侧撑成一条空列(#right 在简化模式里本应由内容决定宽度)。模式切换时会
+//   重新"对账":该显示的套用记忆值,该隐藏的清掉内联尺寸(但**不**忘掉记忆值)。
 (function () {
     "use strict";
+    const RECON = [];        // 每条分割条的对账函数(切模式时重跑)
 
     function injectStyle() {
         if (document.getElementById("mf-splitter-style")) return;
@@ -36,7 +42,6 @@
                 width: 3px; height: 46px; margin-top: -23px; border-radius: 2px;
                 background: var(--dim, #55606e); opacity: 0.75;
             }
-            /* 只在对应模式显示(Dock 与右栏、画布各自的有效范围) */
             body:not(.simple-mode) #mf-split-dock { display: none; }
             body.simple-mode #mf-split-right,
             body.simple-mode #mf-split-view { display: none; }
@@ -57,6 +62,8 @@
         bar.title = (axis === "y" ? "拖动调整高度" : "拖动调整宽度") + " · 双击恢复默认";
         parent.insertBefore(bar, insertAfter ? el.nextSibling : el);
 
+        const visible = () => getComputedStyle(bar).display !== "none";
+
         const apply = (v) => {
             if (axis === "y") {
                 el.style.flex = "0 0 auto";
@@ -69,14 +76,19 @@
             }
             window.dispatchEvent(new Event("resize"));
         };
-        const reset = () => {
+        const clearInline = () => {          // 清内联尺寸,但**保留**记忆值
             ["flex", "height", "maxHeight", "maxWidth"].forEach(p => { el.style[p] = ""; });
-            localStorage.removeItem(key);
             window.dispatchEvent(new Event("resize"));
         };
+        const reset = () => { clearInline(); localStorage.removeItem(key); };
 
-        const saved = parseFloat(localStorage.getItem(key) || "");
-        if (isFinite(saved) && saved >= min) apply(saved);
+        // 对账:可见 → 套用记忆值;不可见 → 清掉(避免"标准模式的宽度污染简化模式")
+        const reconcile = () => {
+            const saved = parseFloat(localStorage.getItem(key) || "");
+            if (visible() && isFinite(saved) && saved >= min) apply(saved);
+            else if (!visible()) clearInline();
+        };
+        RECON.push(reconcile);
 
         let drag = null;
         bar.addEventListener("mousedown", (e) => {
@@ -105,13 +117,19 @@
         return true;
     }
 
+    function reconcileAll() { RECON.forEach(f => { try { f(); } catch (e) { /* 忽略 */ } }); }
+
     function setup() {
         injectStyle();
         attach("mf-split-insp", "#inspector", "y", 72, 4000, "mf.inspectorH", false);
         attach("mf-split-dock", "#dock", "x", 160, 560, "mf.dockW", true);
-        // 标准面板:右栏宽度(右栏在行尾 → 拖左=变宽)+ 画布/3D 视口分界
         attach("mf-split-right", "#right", "x", 260, 720, "mf.rightW", false, true);
         attach("mf-split-view", "#viewport-wrap", "y", 120, 4000, "mf.viewportH", false);
+        reconcileAll();                                   // 首次:按当前模式套用/清理
+        const mb = document.getElementById("btn-ui-mode");
+        if (mb) mb.addEventListener("click", () => setTimeout(reconcileAll, 80));
+        // 兜底:面板重建后也重新对账(简化模式下 Dock 由 simpleUI 渲染)
+        window.addEventListener("load", () => setTimeout(reconcileAll, 500));
     }
 
     if (document.readyState === "loading") {
@@ -119,5 +137,6 @@
     } else {
         setup();
     }
-    window.addEventListener("load", () => setTimeout(setup, 300));   // 面板可能后建
+    window.addEventListener("load", () => setTimeout(setup, 300));
+    window.mfSplitters = { reconcileAll };
 })();

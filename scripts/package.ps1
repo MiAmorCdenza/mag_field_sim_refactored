@@ -1,8 +1,8 @@
-# 便携包打包:Release exe + 嵌入式 Python 运行时 + 站点包 → zip。
+﻿# 便携包打包:Release exe + 嵌入式 Python 运行时 + 站点包 → zip。
 # 目标机器无需 Python/VS,仅需 Windows x64(Release CRT 已随包附带)。
 #
 # 用法: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 [-Version v0.2.0-beta]
-param([string]$Version = "v0.2.0-beta")
+param([string]$Version = "v0.2.2-beta")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -161,6 +161,11 @@ Copy-Item (Join-Path $root "engine") (Join-Path $pkg "engine") -Recurse
 Copy-Item (Join-Path $root "nodes") (Join-Path $pkg "nodes") -Recurse
 # A2000 抛物面模型(a2000.dll + gfortran 运行库;节点 nodes/paraboloid.py 依赖)
 Copy-Item (Join-Path $root "models") (Join-Path $pkg "models") -Recurse
+# #43 粒子度量插件(检查器的物理量来源):漏掉它,打包版的检查器会是空的
+foreach ($ad in @("analysis", "user_analysis")) {
+    $ap = Join-Path $root $ad
+    if (Test-Path $ap) { Copy-Item $ap (Join-Path $pkg $ad) -Recurse -Force }
+}
 foreach ($d in @("user_nodes", "user_render_items")) {
     if (Test-Path (Join-Path $root $d)) {
         Copy-Item (Join-Path $root $d) (Join-Path $pkg $d) -Recurse
