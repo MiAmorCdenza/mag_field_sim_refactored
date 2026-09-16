@@ -770,6 +770,33 @@ Auxiliary\Build\vcvars64.bat`)+ `cl /MD /EHsc /O2 /std:c++17 /I..\core`。
     - 运维提醒:**后台作业 / `Start-Process` 起的服务器能否跨回合存活不确定**
       (实测:上一回合启的实例活着,再上一轮的没了)→ 让用户自己启动最稳
       (`scripts\start.bat`),或用任务计划程序建一次性任务(脱离作业对象)
+
+39b. **A2000 抛物面模型节点(偶极子的升级版)**。用户提议用 Toffoletto–Hill 作偶极子
+    升级;调研后改选**抛物面模型(CPMOD/A2000 家族)**——它的卖点正合我们的架构:
+    磁场写成**电流源叠加**(偶极 + 环电流 + 尾电流 + 磁层顶 CF 屏蔽×2 + Region-1 FAC
+    + 穿透 IMF),Dst 驱动环电流、AL 驱动尾瓣磁通、太阳风动压+IMF Bz 定 R1/FAC
+    - 源码:**IRBEM 的标准双精度实现**(`models/a2000_irbem.f`;SpacePy 本机自带,
+      另有作者组官网 magnetosphere.ru 与 PRBEM/IRBEM 仓库)。第一版误用竞赛项目的
+      `models/parabmod.for`(bimf 隐式标量 → 靠 -fallow-argument-mismatch 硬编),
+      结果是**总场尚可、Dst 完全无响应**(环电流行恒 7.7 nT)—— 典型的"画布正常物理全错"
+    - 编译:`scripts/build_a2000.ps1`(需 64 位 gfortran;PATH 里的 mingw32 是 32 位,
+      配不了 64 位 Python)。f2py 2.x 在 Python≥3.12 走 meson 且包装 Bessel 例程时崩
+      (KeyError besj0)→ 改为**普通 DLL + ctypes**(不绑 Python 版本,便携包只多
+      1 个 dll + 4 个 gfortran 运行库)
+    - `models/a2000_api.f90`:**两段式**包装 —— `submod()` 由空间天气算 par(1..10)
+      每图一次,`A_field()` 逐点求场(这正是模型自己的结构,比每点重算快一个量级);
+      时间走模型的 `COMMON /a2000_time/`;带 `ifail`;`PRINT` 刷屏用 fd 级静音屏蔽
+    - 验收(`tests/test_paraboloid_model.py`,5 项全过):①**参数映射与作者组在线工具
+      earth3d 逐项吻合**(R1 10.411 vs 10.436、R2 7.287 vs 7.305、BR −10、AJ0 0.580、
+      Φ∞ 472.6 vs 472.998 MWb、B0 −29554 vs −29644 nT);②总场与解析偶极量级一致;
+      ③**Dst 0→−50→−150 赤道 r=2 Re 总场 3691→3653→3611 nT 单调下降**(环电流真生效);
+      ④Ox 轴格点有限;⑤tiny 114k 点求值 **1.24 s**
+    - 已知限制/待办:①抛物面坐标在 **Ox 轴奇异**(源码警告,实测 NaN)→ 节点把 ρ<0.02 的
+      格点沿 y 轻推 0.02 Re;②模型给的 7 个**分源行**在该 IRBEM 变体里量级对不上、
+      `PSTATUS` 开关对总场无影响(疑似内部 bd0/bka 归一化)→ **只输出总场**,分源/开关
+      留 TODO;③本模型已含尾电流与磁层顶电流,与 T89 相加会重复计 → 推荐单独使用
+      或只叠均匀 IMF;④`_INTERNAL_FIELD_MODELS` 已加入 paraboloid(自带偶极,
+      不会误报 external_only_field)
 33. **引导页 + 预设自动发现**(用户诉求:"打开网页看到仿真标题与几个预设
     各自的选项框(自动排列,方便工程内添加),保留一个『自定义』入口进入
     标准空预设")

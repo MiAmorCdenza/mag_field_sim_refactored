@@ -429,7 +429,7 @@ class Graph:
     # 仅 34 nT,而偶极子 9244 nT —— 漏掉内部场会让内磁层场强低约 100 倍。
     _EXTERNAL_ONLY_MODELS = ("t89", "t96", "t01", "t04", "ts05", "ta16",
                              "tail", "imf_source")
-    _INTERNAL_FIELD_MODELS = ("dipole", "igrf")
+    _INTERNAL_FIELD_MODELS = ("dipole", "igrf", "paraboloid")
 
     def _field_chain_types(self, nid, seen=None):
         """从 nid 向上游收集全部节点类型(数据依赖图,含所有输入端口)。"""

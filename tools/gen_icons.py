@@ -331,7 +331,7 @@ GLYPHS = {
 
 # 节点类型 → 图标(按关键词匹配,顺序即优先级)。没命中的按 category 兜底。
 KEYWORD_GLYPHS = [
-    ("dipole", "magnet"),
+    ("dipole", "magnet"), ("paraboloid", "magnet"),
     ("t89", "globe"), ("t96", "globe"), ("t01", "globe"), ("t04", "globe"),
     ("ts05", "globe"), ("ta16", "globe"),
     ("output_slot", "plug"),

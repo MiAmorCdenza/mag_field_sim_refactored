@@ -37,6 +37,7 @@
   "mul": "math",
   "output_encoder": "packet",
   "output_slot": "plug",
+  "paraboloid": "magnet",
   "particle_emitter": "nozzle",
   "particle_injection": "target",
   "particle_population": "table",

@@ -1,4 +1,4 @@
-﻿# 便携包打包:Release exe + 嵌入式 Python 运行时 + 站点包 → zip。
+# 便携包打包:Release exe + 嵌入式 Python 运行时 + 站点包 → zip。
 # 目标机器无需 Python/VS,仅需 Windows x64(Release CRT 已随包附带)。
 #
 # 用法: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 [-Version v0.2.0-beta]
@@ -159,6 +159,8 @@ foreach ($m in @("numpy", "scipy", "geopack")) {
 # 应用 Python 代码(引擎与节点插件 —— 服务器在 --root 下 import engine)
 Copy-Item (Join-Path $root "engine") (Join-Path $pkg "engine") -Recurse
 Copy-Item (Join-Path $root "nodes") (Join-Path $pkg "nodes") -Recurse
+# A2000 抛物面模型(a2000.dll + gfortran 运行库;节点 nodes/paraboloid.py 依赖)
+Copy-Item (Join-Path $root "models") (Join-Path $pkg "models") -Recurse
 foreach ($d in @("user_nodes", "user_render_items")) {
     if (Test-Path (Join-Path $root $d)) {
         Copy-Item (Join-Path $root $d) (Join-Path $pkg $d) -Recurse
