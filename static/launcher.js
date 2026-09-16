@@ -96,5 +96,5 @@ window.launcher = (function () {
     } else {
         boot();
     }
-    return { show, hide, toggle, load, presets: () => presets };
+    return { show, hide, toggle, load, presets: () => presets, fetchPresets };
 })();
