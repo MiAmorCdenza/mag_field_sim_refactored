@@ -1,84 +1,100 @@
-// 窗口分割条(#43 附加件)—— 可拖拽调整"检查器/预览窗"高度。
+// 窗口分割条(#43 附加件·实验)—— 手动拖拽调整各面板尺寸。
 //
-// 为什么单独一个文件:这是一个**可整体回滚**的实验件 ——
-//   回滚 = 删掉 index.html 里的 <script src="/splitter.js"></script> 这一行(其余自动消失)。
+// 可整体回滚的实验件:回滚 = 删掉 index.html 里的 <script src="/splitter.js"></script>。
 //
-// 行为:
-//   · 自动在 #inspector 前面插入一条分割条(自己注入样式,不污染 index.html)
-//   · 上下拖动 → 改检查器高度(钳制 72px ~ 父容器 85%),3D 视口随之变高变矮
-//   · 拖完记忆到 localStorage,刷新后恢复;双击分割条 = 恢复自动高度
-//   · 拖动过程中派发 window resize 事件,让 three.js 重新适配画布尺寸
+// 四条分割条(自己注入样式与 DOM,不改 index.html 的 CSS):
+//   1) #inspector 上方(横)      上下拖 → 检查器高度;           两种模式都可用
+//   2) #dock 右侧(竖)           左右拖 → 参数栏宽度;           仅简化模式(Dock 可见时)
+//   3) #right 左侧(竖,反向)     左右拖 → 右栏宽度(拖左=变宽);  仅标准模式
+//   4) #viewport-wrap 上方(横)   上下拖 → 3D 视口高度 ↔ 画布;   仅标准模式
+//
+// 共同行为:悬停高亮 · 拖动时派发 window resize(three.js 重适配画布) ·
+// 尺寸记忆在 localStorage · 双击恢复默认。
 (function () {
     "use strict";
-    const KEY = "mf.inspectorH";
-    const MIN = 72;
 
-    function css() {
+    function injectStyle() {
         if (document.getElementById("mf-splitter-style")) return;
         const s = document.createElement("style");
         s.id = "mf-splitter-style";
         s.textContent = `
-            #mf-splitter {
-                flex: 0 0 6px; height: 6px; cursor: row-resize;
-                background: linear-gradient(transparent, var(--border, #2a3340));
-                position: relative; z-index: 7; user-select: none;
-            }
-            #mf-splitter:hover, #mf-splitter.mf-dragging {
+            .mf-split { position: relative; z-index: 7; user-select: none; }
+            .mf-split:hover, .mf-split.mf-dragging {
                 background: var(--accent, #4da6ff); opacity: 0.55;
             }
-            #mf-splitter::after {
+            .mf-split-h { flex: 0 0 6px; height: 6px; cursor: row-resize;
+                          background: linear-gradient(transparent, var(--border, #2a3340)); }
+            .mf-split-h::after {
                 content: ""; position: absolute; left: 50%; top: 1px;
                 width: 46px; height: 3px; margin-left: -23px; border-radius: 2px;
                 background: var(--dim, #55606e); opacity: 0.75;
-            }`;
+            }
+            .mf-split-v { flex: 0 0 6px; width: 6px; cursor: col-resize;
+                          background: linear-gradient(90deg, transparent, var(--border, #2a3340)); }
+            .mf-split-v::after {
+                content: ""; position: absolute; top: 50%; left: 1px;
+                width: 3px; height: 46px; margin-top: -23px; border-radius: 2px;
+                background: var(--dim, #55606e); opacity: 0.75;
+            }
+            /* 只在对应模式显示(Dock 与右栏、画布各自的有效范围) */
+            body:not(.simple-mode) #mf-split-dock { display: none; }
+            body.simple-mode #mf-split-right,
+            body.simple-mode #mf-split-view { display: none; }
+        `;
         document.head.appendChild(s);
     }
 
-    function setup() {
-        const insp = document.getElementById("inspector");
-        if (!insp || document.getElementById("mf-splitter")) return false;
-        const parent = insp.parentElement;
+    // target: 要调尺寸的元素;axis: "y"=高度 / "x"=宽度;invert: 拖反方向才变大
+    function attach(barId, target, axis, min, max, key, insertAfter, invert) {
+        const el = document.querySelector(target);
+        if (!el || document.getElementById(barId)) return false;
+        const parent = el.parentElement;
         if (!parent) return false;
 
-        css();
         const bar = document.createElement("div");
-        bar.id = "mf-splitter";
-        bar.title = "拖动调整高度 · 双击恢复自动";
-        parent.insertBefore(bar, insp);
+        bar.id = barId;
+        bar.className = "mf-split " + (axis === "y" ? "mf-split-h" : "mf-split-v");
+        bar.title = (axis === "y" ? "拖动调整高度" : "拖动调整宽度") + " · 双击恢复默认";
+        parent.insertBefore(bar, insertAfter ? el.nextSibling : el);
 
-        // 恢复上次高度
-        const saved = parseFloat(localStorage.getItem(KEY) || "");
-        if (isFinite(saved) && saved > MIN) apply(saved);
-
-        function apply(h) {
-            insp.style.flex = "0 0 auto";
-            insp.style.height = h + "px";
-            insp.style.maxHeight = "none";        // 手动模式下不受 46%/70% 限制
-            window.dispatchEvent(new Event("resize"));   // 让 three.js 重新适配
-        }
-        function reset() {
-            insp.style.flex = "";
-            insp.style.height = "";
-            insp.style.maxHeight = "";
-            localStorage.removeItem(KEY);
+        const apply = (v) => {
+            if (axis === "y") {
+                el.style.flex = "0 0 auto";
+                el.style.height = v + "px";
+                el.style.maxHeight = "none";
+            } else {
+                document.body.classList.remove("dock-collapsed");   // Dock:拖动即展开
+                el.style.flex = "0 0 " + v + "px";
+                el.style.maxWidth = "none";
+            }
             window.dispatchEvent(new Event("resize"));
-        }
-        function clamp(h) {
-            const ph = parent.getBoundingClientRect().height || 600;
-            return Math.max(MIN, Math.min(h, ph * 0.85));
-        }
+        };
+        const reset = () => {
+            ["flex", "height", "maxHeight", "maxWidth"].forEach(p => { el.style[p] = ""; });
+            localStorage.removeItem(key);
+            window.dispatchEvent(new Event("resize"));
+        };
+
+        const saved = parseFloat(localStorage.getItem(key) || "");
+        if (isFinite(saved) && saved >= min) apply(saved);
 
         let drag = null;
         bar.addEventListener("mousedown", (e) => {
-            drag = { y: e.clientY, h: insp.getBoundingClientRect().height };
+            const r = el.getBoundingClientRect();
+            drag = { x: e.clientX, y: e.clientY,
+                     v: axis === "y" ? r.height : r.width };
             bar.classList.add("mf-dragging");
             e.preventDefault();
         });
         window.addEventListener("mousemove", (e) => {
             if (!drag) return;
-            const h = clamp(drag.h + (drag.y - e.clientY));   // 往上拖 = 变高
-            apply(h);
-            localStorage.setItem(KEY, String(Math.round(h)));
+            let raw;
+            if (axis === "y") raw = drag.v + (drag.y - e.clientY);        // 上拖 = 变高
+            else raw = drag.v + (invert ? drag.x - e.clientX              // 左拖 = 变宽
+                                        : e.clientX - drag.x);
+            const v = Math.max(min, Math.min(raw, max));
+            apply(v);
+            localStorage.setItem(key, String(Math.round(v)));
         });
         window.addEventListener("mouseup", () => {
             if (!drag) return;
@@ -89,11 +105,19 @@
         return true;
     }
 
+    function setup() {
+        injectStyle();
+        attach("mf-split-insp", "#inspector", "y", 72, 4000, "mf.inspectorH", false);
+        attach("mf-split-dock", "#dock", "x", 160, 560, "mf.dockW", true);
+        // 标准面板:右栏宽度(右栏在行尾 → 拖左=变宽)+ 画布/3D 视口分界
+        attach("mf-split-right", "#right", "x", 260, 720, "mf.rightW", false, true);
+        attach("mf-split-view", "#viewport-wrap", "y", 120, 4000, "mf.viewportH", false);
+    }
+
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", setup);
     } else {
         setup();
     }
-    // 检查器可能被别的脚本后建 → 兜底再试一次
-    window.addEventListener("load", () => setTimeout(setup, 300));
+    window.addEventListener("load", () => setTimeout(setup, 300));   // 面板可能后建
 })();
