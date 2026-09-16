@@ -246,3 +246,19 @@ bool BakeBridge::analyze(const std::string& payload_json, std::string& out_json,
         return false;
     }
 }
+bool BakeBridge::validate(const std::string& payload_json, std::string& out_json,
+                          std::string& err) {
+    try {
+        py::gil_scoped_acquire g;
+        auto mod = py::module_::import("engine.validate");
+        py::object res = mod.attr("validate_graph")(payload_json);
+        out_json = res.cast<std::string>();
+        return true;
+    } catch (const py::error_already_set& e) {
+        err = std::string("图校验失败: ") + e.what();
+        return false;
+    } catch (const std::exception& e) {
+        err = std::string("图校验异常: ") + e.what();
+        return false;
+    }
+}

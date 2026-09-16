@@ -54,6 +54,11 @@ public:
     bool analyze(const std::string& payload_json, std::string& out_json,
                  std::string& err);
 
+    // 图校验(#45):保存预设前的唯一裁决者(engine/validate.py)。
+    // 口径与回归一致:能加载 + 计划零告警 + 能烘焙且全有限。
+    bool validate(const std::string& payload_json, std::string& out_json,
+                  std::string& err);
+
     // 图中声明的输出槽位(含 output_slot 节点自动推导)
     bool declared_outputs(std::vector<std::string>& slots, std::string& err);
 

@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <ctime>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -27,6 +29,135 @@
 #include "../core/plan_compiler.h"
 
 using json = nlohmann::json;
+
+// ---- 预设写入(#45):校验 → 备份 → 原子写 ----
+// 只允许写 graphs/preset_<slug>.json;slug 限 [a-z0-9_-](杜绝目录穿越)。
+// 只读保护:环境变量 MF_PRESETS_READONLY=1(现场演示防误覆盖)。
+// ⚠ 日志宏 MFL 是固定 5 参宏:属性 json **必须先赋给局部变量**再传,
+//   否则 json{{"a",1},{"b",2}} 里的逗号会被预处理器当参数分隔 → 花括号被撕开(C1075)。
+bool presets_readonly() {
+    const char* v = std::getenv("MF_PRESETS_READONLY");
+    return v && *v && std::string(v) != "0";
+}
+std::string slugify(const std::string& s) {
+    std::string o;
+    for (unsigned char c : s) {
+        if (std::isalnum(c)) o += (char)std::tolower(c);
+        else if (c == '-' || c == '_') o += (char)c;
+        else if (!o.empty() && o.back() != '-') o += '-';
+    }
+    while (!o.empty() && o.back() == '-') o.pop_back();
+    return o;
+}
+bool valid_slug(const std::string& s) {
+    if (s.empty() || s.size() > 64) return false;
+    for (unsigned char c : s)
+        if (!(std::isalnum(c) || c == '-' || c == '_')) return false;
+    return true;
+}
+
+// 整块独立函数:不在 run()(上千行)中间插代码块 —— 那样极易破坏花括号结构。
+// validate 回调由 run() 注入(它需要 bridge + bridge_m,那是 run() 内部的成员)。
+template <typename App, typename ValidateFn>
+void register_preset_routes(App& app, const std::string& root, ValidateFn validate) {
+    CROW_ROUTE(app, "/api/preset").methods("POST"_method)
+    ([root, validate](const crow::request& req) {
+        auto bad = [](int code, const std::string& msg) {
+            std::string s = json{{"ok", false}, {"error", msg}}.dump();
+            return crow::response(code, s);
+        };
+        json body = json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) return bad(400, "body 不是合法 JSON");
+        if (presets_readonly()) return bad(403, "预设目录为只读(MF_PRESETS_READONLY=1)");
+        const std::string mode = body.value("mode", "saveas");
+        json graph = body.contains("graph") ? body["graph"] : json::object();
+        if (!graph.is_object() || graph.empty()) return bad(400, "缺少 graph");
+        json pre = (body.contains("preset") && body["preset"].is_object())
+                   ? body["preset"] : json::object();
+
+        std::string id = body.value("id", "");
+        if (mode == "overwrite") {
+            if (!valid_slug(id)) return bad(400, "覆盖模式需要合法的 id");
+        } else {
+            std::string slug = slugify(pre.value("name", id));
+            if (!valid_slug(slug)) {
+                // 纯中文等非 ASCII 名称 slug 会为空 → 用时间戳兜底生成 id
+                // (中文不能直接进文件名/URL id,但用户仍能用中文"名称")
+                slug = "p" + std::to_string((long long)std::time(nullptr));
+            }
+            std::string cand = slug;
+            for (int k = 2; k < 100; ++k) {
+                if (!std::filesystem::exists(root + "/graphs/preset_" + cand + ".json"))
+                    break;
+                cand = slug + "-" + std::to_string(k);
+            }
+            id = cand;
+        }
+        pre["id"] = id;
+        if (!pre.contains("name") || !pre["name"].is_string() ||
+            pre["name"].get<std::string>().empty())
+            pre["name"] = id;
+        if (!pre.contains("sort")) pre["sort"] = 50;
+        graph["preset"] = pre;
+
+        // 唯一裁决者:engine/validate.py(能加载 + 计划零告警 + 能烘焙且全有限)
+        std::string vout, verr;
+        bool vok = false;
+        try {
+            json payload;
+            payload["root"] = root;
+            payload["graph"] = graph;
+            vok = validate(payload.dump(), vout, verr);
+        } catch (const std::exception& e) {
+            return bad(500, std::string("校验调用异常: ") + e.what());
+        }
+        if (!vok) return bad(500, verr);
+        json vres = vout.empty() ? json::object() : json::parse(vout, nullptr, false);
+        if (!body.value("force", false) && vres.is_object() && !vres.value("ok", false)) {
+            json rej;
+            rej["ok"] = false;
+            rej["stage"] = "validate";
+            rej["detail"] = vres;
+            return crow::response(400, rej.dump());
+        }
+
+        // 备份(仅覆盖已有文件时)+ 原子写(tmp → rename)
+        const std::string path = root + "/graphs/preset_" + id + ".json";
+        std::error_code ec;
+        if (std::filesystem::exists(path)) {
+            std::filesystem::create_directories(root + "/graphs/.backup", ec);
+            const std::string ts = std::to_string((long long)std::time(nullptr));
+            std::filesystem::copy_file(
+                path, root + "/graphs/.backup/preset_" + id + "." + ts + ".json",
+                std::filesystem::copy_options::overwrite_existing, ec);
+        }
+        const std::string tmp = path + ".tmp";
+        {
+            std::ofstream f(tmp, std::ios::binary);
+            if (!f) return bad(500, "无法写入临时文件");
+            f << graph.dump(1);
+            if (!f.good()) return bad(500, "写临时文件失败");
+        }
+        std::filesystem::rename(tmp, path, ec);
+        if (ec) return bad(500, "重命名失败: " + ec.message());
+
+        json attr;                                  // ⚠ 先赋局部变量再传 MFL
+        attr["id"] = id;
+        attr["mode"] = mode;
+        attr["nodes"] = (int)graph["nodes"].size();
+        MFL("preset", "save", Info,
+            (mode == "overwrite" ? "已覆盖预设 " : "已另存预设 ") + id, attr);
+
+        json ok;
+        ok["ok"] = true;
+        ok["id"] = id;
+        ok["mode"] = mode;
+        ok["validate"] = vres;
+        ok["path"] = "graphs/preset_" + id + ".json";
+        return crow::response(200, ok.dump());
+    });
+}
+
 
 namespace {
 
@@ -1146,6 +1277,11 @@ struct ServerApp::Impl {
         // 预设发现(#33):扫 graphs/preset_*.json → 引导页卡片列表。
         // 预设文件可带 meta 块(取不到就用文件名);
         // 增删预设 = 增删文件,前端自动排列,无需改代码。
+        register_preset_routes(app, cfg.root, [this](const std::string& payload,
+                                                         std::string& out, std::string& err) {
+            std::lock_guard<std::mutex> g(bridge_m);
+            return bridge.validate(payload, out, err);
+        });
         CROW_ROUTE(app, "/api/presets")([this]() {
             nlohmann::json arr = nlohmann::json::array();
             std::error_code ec;
