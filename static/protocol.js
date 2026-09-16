@@ -69,6 +69,7 @@ window.protocol = (function () {
             }
             bits.push("场源 " + plan.b_slot + (name ? " ← " + name : ""));
         }
+        if (simStats.paused) bits.push("⏸ 已暂停");
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
         }
@@ -218,6 +219,31 @@ window.protocol = (function () {
     }
 
     function handleText(m) {
+        if (m.type === "sim_state") {
+            // #43 暂停状态(服务器权威;新连接会收到重放)
+            simStats.paused = !!m.paused;
+            simStats.t = typeof m.t === "number" ? m.t : simStats.t;
+            const pb = document.getElementById("btn-pause");
+            if (pb) pb.textContent = simStats.paused ? "▶ 继续" : "⏸ 暂停";
+            return;
+        }
+        if (m.type === "particle.info") {
+            // #43 度量结果:进缓存(悬停即时显示)→ 分别喂给"锁定"与"悬停"两个槽
+            metricsCatalog = m.metrics || metricsCatalog;
+            for (const it of (m.items || [])) infoById.set(it.id, { item: it });
+            const host = window.renderHost;
+            if (!host) return;
+            const infoFor = (id) => (id !== null && id !== undefined && infoById.has(id))
+                ? { items: [infoById.get(id).item], metrics: metricsCatalog } : null;
+            const sel = host.getSelection();
+            host.setSelectionInfo(sel ? infoFor(sel.ids[0]) : null, { pinned: true });
+            const hv = host.getHover();
+            const hid = hv && hv.ids ? hv.ids[0] : null;
+            host.setSelectionInfo(infoFor(hid), { hover: true });
+            const t = tipEl();
+            if (t && hid !== null) t.textContent = tipText(hid);
+            return;
+        }
         if (m.type === "init_config") {
             serverGraph = m.graph;
             window.editor.loadGraph(m.graph);
@@ -344,6 +370,88 @@ window.protocol = (function () {
     }
 
     function respawn() { wsSend({ type: "respawn" }); }
+
+    // ---- #43 暂停 与 粒子属性查询(片 1/2)----
+    function togglePause() {
+        simStats.paused = !simStats.paused;
+        wsSend({ type: "sim.pause", paused: simStats.paused });
+        const b = document.getElementById("btn-pause");
+        if (b) b.textContent = simStats.paused ? "▶ 继续" : "⏸ 暂停";
+    }
+    // #43 悬停自动索引:光标底下是谁 → 即时显示(临时;点击才锁定)
+    const infoById = new Map();          // id → 度量快照(缓存,避免重复查询)
+    let metricsCatalog = [];
+    const tipEl = () => document.getElementById("hover-tip");
+    function showTip(clientX, clientY) {
+        const t = tipEl(); if (!t) return;
+        const wrap = document.getElementById("viewport-wrap");
+        const r = wrap ? wrap.getBoundingClientRect() : { left: 0, top: 0 };
+        t.classList.remove("hidden");
+        t.style.left = (clientX - r.left + 14) + "px";
+        t.style.top = (clientY - r.top + 12) + "px";
+    }
+    function hideTip() { const t = tipEl(); if (t) t.classList.add("hidden"); }
+    function tipText(id) {
+        const rec = infoById.get(id);
+        if (!rec) return "id " + id + " · 查询中…";
+        const it = rec.item;
+        const f = (v, d) => (typeof v === "number" && isFinite(v)) ? v.toFixed(d) : String(v);
+        return "id " + id + "   r=" + f(it.r_re, 2) + " Re   v=" + f(it.speed_kms, 0) +
+               " km/s   |B|=" + f(it.b_nt, 1) + " nT   α=" + f(it.pitch_deg, 1) + "°   " +
+               (it.trapped || "");
+    }
+    function requestParticleInfo(ids) {
+        wsSend({ type: "particle.query", ids: (ids || []).slice(0, 500) });
+    }
+    // 视口点击 → 拾取粒子(拖动超过 5px 不算点击);Esc/空白处 → 取消选择
+    function bindPickAndKeys() {
+        const vp = document.getElementById("viewport");
+        if (vp) {
+            let x0 = 0, y0 = 0;
+            vp.addEventListener("mousedown", (e) => { x0 = e.clientX; y0 = e.clientY; });
+            vp.addEventListener("mouseup", (e) => {
+                if (Math.abs(e.clientX - x0) > 5 || Math.abs(e.clientY - y0) > 5) return;
+                const host = window.renderHost;
+                if (!host) return;
+                const hit = host.pick(e.clientX, e.clientY);
+                if (hit) { host.setSelection(hit); requestParticleInfo(hit.ids); }
+                else { host.setSelection(null); host.setSelectionInfo(null); }
+            });
+        }
+        // 悬停:节流 60 ms + 只在 id 变化时查询(缓存命中则立即显示)
+        let hoverPending = false, lastHoverId = null;
+        if (vp) {
+            vp.addEventListener("mousemove", (e) => {
+                if (hoverPending) return;
+                hoverPending = true;
+                setTimeout(() => {
+                    hoverPending = false;
+                    const host = window.renderHost;
+                    if (!host) return;
+                    const hit = host.pick(e.clientX, e.clientY);
+                    const id = hit && hit.ids ? hit.ids[0] : null;
+                    host.setHover(hit);
+                    if (id === null) { hideTip(); lastHoverId = null; return; }
+                    showTip(e.clientX, e.clientY);
+                    const t = tipEl();
+                    if (t) t.textContent = tipText(id);
+                    if (id !== lastHoverId) { lastHoverId = id; requestParticleInfo([id]); }
+                }, 60);
+            });
+            vp.addEventListener("mouseleave", () => {
+                const host = window.renderHost;
+                host && host.setHover(null);
+                hideTip(); lastHoverId = null;
+            });
+        }
+        window.addEventListener("keydown", (e) => {
+            const t = e.target && e.target.tagName;
+            if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+            if (e.code === "Space") { e.preventDefault(); togglePause(); }
+        });
+        const pb = document.getElementById("btn-pause");
+        if (pb) pb.onclick = togglePause;
+    }
     function resetToServer() { if (serverGraph) window.editor.loadGraph(serverGraph); }
 
     // 重放最后一次服务器预览(重选注入节点时用:服务器不会为"选中"再发一次)
@@ -358,6 +466,8 @@ window.protocol = (function () {
         wsSend({ type: "set_particle_count", value: n });
     });
 
+    bindPickAndKeys();
     boot();
-    return { uploadGraph, sendParam, respawn, resetToServer, replaySourcePreview };
+    return { uploadGraph, sendParam, respawn, resetToServer, replaySourcePreview,
+             togglePause, requestParticleInfo };
 })();

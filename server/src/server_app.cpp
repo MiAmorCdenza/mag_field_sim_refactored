@@ -71,6 +71,9 @@ struct SharedState {
     bool bake_failed = false;
     uint64_t bake_failed_seq = 0;
     bool running = true;
+    // #43 暂停:只冻结物理步进(烘焙、图编辑、respawn 照常)。暂停态可被新连接重放
+    bool paused = false;
+    std::string sim_state_json;
 };
 
 std::string read_file(const std::string& path) {
@@ -671,7 +674,13 @@ struct ServerApp::Impl {
             }
 
             // 3) 物理步进(首次烘焙完成前不积分:空表步进无物理意义)
-            if (pipeline->b_table().has_data()) pipeline->step_frame();
+            // #43 暂停:冻结物理步进(烘焙/图编辑/respawn 均不受影响)
+            bool paused_now = false;
+            {
+                std::lock_guard<std::mutex> g(st.m);
+                paused_now = st.paused;
+            }
+            if (!paused_now && pipeline->b_table().has_data()) pipeline->step_frame();
 
             // 3b) 运行期诊断(#35):无重生且死伤过半 → population_decaying。
             //     计划状态平时只在"计划变化"时广播,这里为运行期变化补一条
@@ -871,6 +880,8 @@ struct ServerApp::Impl {
                         conn.send_text(st.population_json);
                     if (!st.plan_status_json.empty())
                         conn.send_text(st.plan_status_json);
+                    if (!st.sim_state_json.empty())       // #43 暂停态也要重放
+                        conn.send_text(st.sim_state_json);
                 }
                 LOG_INFO("ws", "connected", "WebSocket 连接建立");
             })
@@ -1026,6 +1037,75 @@ struct ServerApp::Impl {
                         } else {
                             json e{{"type", "graph.error"}, {"message", err}};
                             conn.send_text(e.dump());
+                        }
+                    } else if (type == "sim.pause") {
+                        // #43 暂停/继续:冻结物理,广播状态(并缓存供新连接重放)
+                        bool paused = msg.value("paused", false);
+                        json st_json;
+                        {
+                            std::lock_guard<std::mutex> g(st.m);
+                            st.paused = paused;
+                            st_json = json{{"type", "sim_state"},
+                                           {"paused", st.paused},
+                                           {"t", pipeline ? pipeline->sim_time() : 0.0},
+                                           {"n", pipeline ? (int)pipeline->particles.count : 0}};
+                            st.sim_state_json = st_json.dump();
+                        }
+                        broadcast_text(st_json.dump());
+                        MFL("sim", "pause", Info, paused ? "仿真已暂停" : "仿真已继续",
+                            nlohmann::json::object());
+                    } else if (type == "particle.query") {
+                        // #43 粒子属性查询(暂停态查看器):C++ 只给**原始快照**
+                        // (位置/速度/荷质比/状态/颜色 + 局部 B),派生量交给
+                        // analysis/*.py 的度量插件算 —— 新增指标不用改这里
+                        std::vector<int> ids;
+                        for (const auto& v : msg.value("ids", json::array())) {
+                            if (v.is_number_integer()) ids.push_back(v.get<int>());
+                            if (ids.size() >= 500) break;      // 上限:明细不刷屏
+                        }
+                        json items = json::array();
+                        std::string aerr, aout;
+                        bool aok = false;
+                        if (pipeline && !ids.empty()) {
+                            const auto& P = pipeline->particles;
+                            std::unordered_map<int, size_t> idx_of;
+                            idx_of.reserve(P.count * 2);
+                            for (size_t i = 0; i < P.count; ++i) idx_of[P.id[i]] = i;
+                            const Table3D& tab = pipeline->b_table();
+                            for (int id : ids) {
+                                auto it = idx_of.find(id);
+                                if (it == idx_of.end()) continue;
+                                const size_t i = it->second;
+                                double bx = 0, by = 0, bz = 0;
+                                if (tab.has_data())
+                                    tab.sample(P.x[i], P.y[i], P.z[i], bx, by, bz);
+                                items.push_back({
+                                    {"id", id},
+                                    {"pos", {P.x[i], P.y[i], P.z[i]}},
+                                    {"vel", {P.vx[i], P.vy[i], P.vz[i]}},
+                                    {"q", P.q[i]}, {"m", P.m[i]},
+                                    {"color", P.color[i]}, {"status", (int)P.status[i]},
+                                    {"b", {bx * B_NT_PER_CODE, by * B_NT_PER_CODE,
+                                           bz * B_NT_PER_CODE}}});
+                            }
+                            json payload{{"root", cfg.root}, {"items", items}};
+                            if (msg.contains("metrics")) payload["metrics"] = msg["metrics"];
+                            std::lock_guard<std::mutex> g(bridge_m);
+                            aok = bridge.analyze(payload.dump(), aout, aerr);
+                        } else if (pipeline) {
+                            // 空 ids:仅返回度量目录(前端据此成表)
+                            json payload{{"root", cfg.root}, {"items", json::array()}};
+                            std::lock_guard<std::mutex> g(bridge_m);
+                            aok = bridge.analyze(payload.dump(), aout, aerr);
+                        }
+                        if (aok) {
+                            json res = json::parse(aout, nullptr, false);
+                            if (res.is_discarded()) res = json::object();
+                            res["type"] = "particle.info";
+                            conn.send_text(res.dump());
+                        } else {
+                            conn.send_text(json{{"type", "particle.info"},
+                                                {"error", aerr}}.dump());
                         }
                     } else if (type == "set_particle_count") {
                         std::lock_guard<std::mutex> g(st.m);

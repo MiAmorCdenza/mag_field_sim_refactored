@@ -85,3 +85,4 @@ window.renderRegistry = (function () {
 
 // 全局注册入口(插件文件与内联代码都调用它)
 window.registerRenderItem = (spec) => window.renderRegistry.register(spec);
+window.registerInspector = (spec) => window.renderHost.registerInspector(spec);   // #43 检查器插件

@@ -229,3 +229,20 @@ bool BakeBridge::rescan(std::string& err) {
         return false;
     }
 }
+
+bool BakeBridge::analyze(const std::string& payload_json, std::string& out_json,
+                         std::string& err) {
+    try {
+        py::gil_scoped_acquire g;      // 由 WS/仿真线程调用,必须取 GIL
+        auto mod = py::module_::import("engine.analysis");
+        py::object res = mod.attr("analyze")(payload_json);
+        out_json = res.cast<std::string>();
+        return true;
+    } catch (const py::error_already_set& e) {
+        err = std::string("度量插件失败: ") + e.what();
+        return false;
+    } catch (const std::exception& e) {
+        err = std::string("度量分析失败: ") + e.what();
+        return false;
+    }
+}

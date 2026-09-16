@@ -48,6 +48,12 @@ public:
     // 节点类型描述(前端编辑器面板):JSON 数组
     bool describe_types(std::string& out_json, std::string& err);
 
+    // 粒子度量分析(#43):快照 JSON → 度量结果 JSON。
+    // 度量本身是 analysis/*.py 里的纯函数插件(能量/俯仰角/损失锥/回旋尺度…),
+    // 新增指标 = 丢一个文件,C++ 与前端都不用改 —— 这是"物理量"那一半的插件缝。
+    bool analyze(const std::string& payload_json, std::string& out_json,
+                 std::string& err);
+
     // 图中声明的输出槽位(含 output_slot 节点自动推导)
     bool declared_outputs(std::vector<std::string>& slots, std::string& err);
 

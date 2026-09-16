@@ -111,7 +111,111 @@ window.renderHost = (function () {
         }
     }
 
-    // ---- 节点参数下发 ----
+    // ---- 选择/拾取(#43 插件化)----
+    // 宿主只提供"事件总线 + 拾取调度":渲染项自愿参与(pickable: true + pick()),
+    // 检查器面板自愿订阅(inspectors/*.js 的 accepts/render)。
+    const inspectors = new Map();     // id → {id,title,accepts,order,render}
+    let selection = null;             // {itemId, ids:[...], rect?:{...}}
+
+    function registerInspector(spec) {
+        if (!spec || !spec.id || typeof spec.render !== "function") return false;
+        inspectors.set(spec.id, spec);
+        return true;
+    }
+
+    // 屏幕坐标 → 命中(遍历所有可拾取渲染项,取最近的一个)
+    function pick(x, y) {
+        const hits = [];
+        for (const inst of items.values()) {
+            if (!inst.pickable || typeof inst.pick !== "function") continue;
+            try {
+                const h = inst.pick(x, y);
+                if (h && h.ids && h.ids.length) hits.push(h);
+            } catch (e) {
+                console.warn("[renderHost] 拾取失败:", inst.id, e);
+            }
+        }
+        if (!hits.length) return null;
+        return hits[0];
+    }
+
+    // 检查器面板:按 accepts 匹配当前选择,交给插件自己的 render()
+    let selectionInfo = null;        // 锁定选择的信息
+    let hoverInfo = null;            // 悬停预览的信息
+    let hover = null;                // 悬停命中(临时,与锁定选择互不干扰)
+    function renderInspectors() {
+        const box = document.getElementById("inspector-body");
+        if (!box) return;
+        box.innerHTML = "";
+        // 显示谁:有锁定选择就显示锁定,否则显示悬停预览
+        const shown = selection || hover;
+        const info = selection ? selectionInfo : hoverInfo;
+        const kind = shown && shown.kind ? shown.kind : null;
+        const n = shown && shown.ids ? shown.ids.length : 0;
+        const list = [...inspectors.values()]
+            .filter(i => i.accepts && (!kind || i.accepts.kind === kind) &&
+                         n >= (i.accepts.min || 1) && n <= (i.accepts.max || 1e9))
+            .sort((a, b) => (a.order || 100) - (b.order || 100));
+        if (!list.length) {
+            box.innerHTML = '<div class="hint">在 3D 视口里点击一个粒子 → 显示其属性' +
+                            '(暂停后读数更稳定)</div>';
+            return;
+        }
+        for (const insp of list) {
+            const sec = document.createElement("section");
+            sec.className = "insp-block";
+            const t = document.createElement("div");
+            t.className = "insp-title";
+            t.textContent = insp.title || insp.id;
+            sec.appendChild(t);
+            try {
+                insp.render(sec, { selection: shown, info: info,
+                                   pinned: !!selection,
+                                   requestInfo: window.protocol &&
+                                                window.protocol.requestParticleInfo });
+            } catch (e) {
+                const h = document.createElement("div");
+                h.className = "hint";
+                h.textContent = "检查器异常: " + e;
+                sec.appendChild(h);
+            }
+            box.appendChild(sec);
+        }
+    }
+    // 悬停:自动索引(不改变锁定选择);点击锁定由 setSelection 负责
+    function setHover(h) {
+        const id = h && h.ids ? h.ids[0] : null;
+        const oldId = hover && hover.ids ? hover.ids[0] : null;
+        hover = id === null ? null : h;
+        if (id !== oldId) {
+            for (const inst of items.values()) {
+                if (typeof inst.onHover === "function") {
+                    try { inst.onHover(id); } catch (e) { /* 插件自己的问题 */ }
+                }
+            }
+            renderInspectors();
+        }
+        window.dispatchEvent(new CustomEvent("mf-hover", { detail: hover }));
+    }
+    function getHover() { return hover; }
+    function setSelectionInfo(info, opts) {
+        if (opts && opts.hover) hoverInfo = info; else selectionInfo = info;
+        renderInspectors();
+    }
+
+    function setSelection(sel) {
+        selection = sel || null;
+        for (const inst of items.values()) {
+            if (typeof inst.onSelect === "function") {
+                try { inst.onSelect(selection); } catch (e) { /* 插件自己的问题 */ }
+            }
+        }
+        window.dispatchEvent(new CustomEvent("mf-selection", { detail: selection }));
+        renderInspectors();
+    }
+    function getSelection() { return selection; }
+    function listInspectors() { return [...inspectors.values()]; }
+
     function applyParams(itemId, params) {
         const inst = items.get(itemId);
         if (!inst) return false;
@@ -171,6 +275,10 @@ window.renderHost = (function () {
     const exports = {
         scene, layers, camera, renderer3d, controls,
         registerItem, unregisterItem, dispatch, applyParams, applyGlobal,
+    // #43 选择/拾取 + 检查器插件注册
+    registerInspector, listInspectors, pick, setSelection, getSelection,
+    setSelectionInfo, renderInspectors, setHover, getHover,
+    items,                       // 供拾取/投影类插件读取渲染项(只读约定)
         items,
     };
     return exports;
