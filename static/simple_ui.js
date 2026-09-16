@@ -102,6 +102,60 @@ window.simpleUI = (function () {
         el.replaceWith(s);
     }
 
+    // ---- 引导模式(#44 重写):现场演示只显示预先确定的节点/参数 ----
+    // 上一版在 guided.js 里用 MutationObserver 包裹 build():apply() 每次重插提示行
+    // → 触发自己 → 无限循环 → 页面"没有响应"。这一版**直接在 build() 里过滤**:
+    // 节点级(不在白名单的节点根本不渲染)+ 参数级(生成的 .prop-row 只留白名单),
+    // 全程不观察 DOM,结构上不可能自触发。
+    const GUIDED = (function () {
+        const KEY = "mf.guided";
+        let on = localStorage.getItem(KEY) !== "0";        // 默认开启
+        let spec = { title: "引导模式", nodes: [] };
+        const entryOf = function (node) {
+            const id = node.id || "";
+            const type = (node._spec && node._spec.type) || "";
+            const name = (node._spec && node._spec.name) || "";
+            for (const e of (spec.nodes || [])) {
+                if (e.id && e.id === id) return e;
+                if (e.type && e.type === type) return e;
+                if (e.name && e.name === name) return e;
+            }
+            return null;
+        };
+        const paramsOf = function (e) {
+            return (!e || !e.params || e.params.indexOf("*") >= 0) ? null : e.params;
+        };
+        return {
+            get on() { return on; },
+            set: function (v) {
+                on = !!v;
+                localStorage.setItem(KEY, on ? "1" : "0");
+            },
+            load: function () {
+                return fetch("/ui/demo_focus.json", { cache: "no-store" })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (j) { if (j) spec = j; })
+                    .catch(function () { /* 没清单 → 不过滤 */ });
+            },
+            title: function () { return spec.title || "引导模式"; },
+            allows: function (node) { return !on || !!entryOf(node); },
+            // 参数行过滤:编辑器生成的 label 以参数名开头("输入 · dst" / "dst · 说明")
+            filterRows: function (node, body) {
+                if (!on) return;
+                const keep = paramsOf(entryOf(node));
+                if (!keep) return;
+                const rows = body.querySelectorAll(".prop-row");
+                for (const row of rows) {
+                    const lab = row.querySelector("label");
+                    if (!lab) continue;
+                    let t = (lab.textContent || "").trim();
+                    if (t.indexOf("输入 · ") === 0) t = t.slice(4);
+                    const pname = t.split(" · ")[0].trim();
+                    if (pname) row.style.display = keep.indexOf(pname) >= 0 ? "" : "none";
+                }
+            },
+        };
+    })();
     function build() {
         const box = el("dock-body");
         if (!box) return;
@@ -116,6 +170,7 @@ window.simpleUI = (function () {
         // 按类别分组(动态:类别来自节点规格;组内按节点名排序)
         const groups = new Map();
         for (const n of nodes) {
+            if (!GUIDED.allows(n)) continue;      // #44 引导模式:非重点节点不渲染
             const c = catKey(groupOf[n._spec.type] || n._spec.category);
             if (!groups.has(c)) groups.set(c, []);
             groups.get(c).push(n);
@@ -151,6 +206,7 @@ window.simpleUI = (function () {
                     if (body.childElementCount) return;
                     try {
                         window.editor.buildParamsInto(node, body);
+                        GUIDED.filterRows(node, body);   // #44 参数级过滤(白名单外的行隐藏)
                     } catch (e) {
                         body.innerHTML = '<div class="hint">参数渲染失败:' + e + "</div>";
                     }
@@ -172,6 +228,27 @@ window.simpleUI = (function () {
     }
 
     function init() {
+        // #44 引导模式:加载清单 + Dock 头部开关(默认开启,状态记忆在 localStorage)
+        const css = document.createElement("style");
+        css.textContent = "#dock-guided.on{background:#1d4f7c;color:#cfe3ff}" +
+            ".mf-guided-note{margin:2px 4px 8px;padding:3px 6px;border-radius:4px;" +
+            "background:rgba(45,106,159,.18);border:1px solid #1d4f7c;color:#9ec7ef;font-size:.72rem}";
+        document.head.appendChild(css);
+        GUIDED.load().then(() => { try { build(); } catch (e) { /* 图未载入 */ } });
+        const head = document.getElementById("dock-head");
+        if (head && !document.getElementById("dock-guided")) {
+            const b = document.createElement("button");
+            b.id = "dock-guided";
+            b.textContent = "🎯";
+            b.title = "引导模式:只显示现场演示预先确定的节点与参数(默认开启)";
+            b.onclick = () => {
+                GUIDED.set(!GUIDED.on);
+                b.classList.toggle("on", GUIDED.on);
+                build();
+            };
+            b.classList.toggle("on", GUIDED.on);
+            head.appendChild(b);
+        }
         const btn = el("btn-ui-mode");
         if (btn) btn.onclick = toggleMode;
         const dt = el("dock-toggle");

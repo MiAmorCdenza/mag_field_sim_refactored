@@ -69,12 +69,12 @@ window.protocol = (function () {
             }
             bits.push("场源 " + plan.b_slot + (name ? " ← " + name : ""));
         }
-        if (simStats.paused) bits.push("⏸ 已暂停");
+        if (simStats.paused) bits.push((window.uiIcons ? window.uiIcons.html("pause", "⏸") : "⏸") + " 已暂停");
         if (plan.degenerate_injection) {
             bits.push("⚠ 注入生效:粒子全重合(count>1 无效)");
         }
         const nw = (s.warnings || []).length;
-        if (nw) bits.push(`⚠ 计划告警 ${nw} 条(见画布红框节点)`);
+        if (nw) bits.push((window.uiIcons ? window.uiIcons.html("warn", "⚠") : "⚠") + ` 计划告警 ${nw} 条(见画布红框节点)`);
         const pop = s.population;
         if (pop && pop.count > 0) {
             bits.push(`种群 ${pop.count} 种`);   // 归属由接线决定(#30)

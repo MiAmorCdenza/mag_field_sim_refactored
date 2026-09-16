@@ -1,23 +1,25 @@
 {
   "_doc": [
     "现场演示(引导模式)重点节点与参数 —— 简化面板默认只显示这里列出的内容。",
-    "匹配方式:type(该类型的所有实例)或 id(指定实例);params 省略 [\"*\"] 表示该节点全部参数。",
-    "改这个文件后刷新页面即生效,不用重启服务器。关闭引导:点 Dock 头部「🎯 引导」按钮。",
-    "建议演示时把讲解会用到的三五个旋钮放这里,其余全部隐藏,避免现场误触。"
+    "匹配方式:**type**(该类型的所有实例)或 name(节点显示名);**不建议用 id** ——",
+    "  编辑器里 node.id 是 LiteGraph 的数字 id,与图 JSON 的 id 不同,按 id 会匹配不上(已踩过)。",
+    "params 省略或 [\"*\"] = 该节点全部参数;改完刷新页面即生效,不用重启服务器。",
+    "关闭引导:点 Dock 头部的 🎯 按钮(状态记忆在 localStorage,默认开启)。"
   ],
   "title": "现场演示 · 重点参数",
   "nodes": [
     { "type": "tilt_source", "params": ["month", "day", "ut"],
-      "note": "日期 → 倾角:季节/周日变化" },
+      "note": "日期 → 倾角:季节 / 周日变化" },
     { "type": "paraboloid", "params": ["dst", "v", "rho", "bz"],
       "note": "太阳风动压与磁暴强度" },
     { "type": "dipole", "params": ["ps"] },
     { "type": "t89", "params": ["kp", "ps"] },
-    { "id": "pe", "params": ["count", "v_base", "angle_random", "respawn"] },
-    { "id": "bi", "params": ["dt", "substeps", "max_range"] },
-    { "id": "rpt", "params": ["size", "opacity"] },
-    { "id": "rtrl", "params": ["trail_length", "opacity"] },
-    { "id": "rfl_a", "params": ["opacity"] },
-    { "id": "rfl_d", "params": ["opacity"] }
+    { "type": "particle_emitter",
+      "params": ["count", "v_base", "angle_random", "respawn"] },
+    { "type": "boris_integrator", "params": ["dt", "substeps", "max_range"] },
+    { "type": "particle_population", "params": ["*"] },
+    { "type": "render_item_particles", "params": ["size", "opacity"] },
+    { "type": "render_item_particle_trails", "params": ["trail_length", "opacity"] },
+    { "type": "render_item_field_lines", "params": ["opacity"] }
   ]
 }

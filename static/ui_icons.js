@@ -22,6 +22,7 @@
         "#dock-head button", ".panel-title",
         ".insp-title", ".dock-group-head",
         "#launcher .card", "#launcher .card-title",
+        "#sim-hud",                    // #46 HUD 每 250ms 重建 → 靠下面的定时补扫
     ];
 
     function injectStyle() {
@@ -82,6 +83,17 @@
         }
     }
 
+    // 递归版:HUD 的每个 bit 在**子元素**里(protocol.js 用 innerHTML 拼),
+    // 只处理直接文本节点会一个都匹配不到 —— 所以对 HUD 这类容器要连子元素一起扫。
+    function rewriteDeep(el) {
+        if (!el) return;
+        rewriteElement(el);
+        const kids = el.querySelectorAll("*");
+        for (const c of kids) {
+            try { rewriteElement(c); } catch (e) { /* 单个失败不影响其它 */ }
+        }
+    }
+
     function rewrite(root) {
         const scope = root || document;
         for (const sel of SELECTORS) {
@@ -115,6 +127,22 @@
     } else { init(); }
     window.addEventListener("load", () => setTimeout(init, 400));
     // 有些按钮/标题是异步渲染或后续才改文案的 → 再补两次(幂等,已处理过会跳过)
-    window.addEventListener("load", () => { setTimeout(() => rewrite(), 1500); setTimeout(() => rewrite(), 3500); });
-    window.uiIcons = { rewrite, iconImg, MAP };          // 供自动化测试/后续复用
+    window.addEventListener("load", () => {
+        setTimeout(() => rewrite(), 1500);
+        setTimeout(() => rewrite(), 3500);
+        // HUD 由 protocol.js 每 250ms 重写 innerHTML → 用低频补扫保持像素图标
+        // (HUD 只有几行,成本可忽略;比改 protocol.js 的拼接逻辑更少侵入)
+        setInterval(() => {
+            const hud = document.getElementById("sim-hud");
+            if (hud) rewriteDeep(hud);
+        }, 1000);
+    });
+    // 字符串版:给 protocol.js 这类用 innerHTML 拼内容的场景直接嵌 <img>
+    // (HUD 每 250ms 重建,靠事后 DOM 替换跑不过它 → 必须在源头就拼成图标)
+    function html(name, alt) {
+        return '<img class="ui-ico" src="/icons/ui/' + name + '.svg" alt="' +
+               (alt || "") + '">';
+    }
+
+    window.uiIcons = { rewrite, rewriteDeep, iconImg, html, MAP };          // 供自动化测试/后续复用
 })();
