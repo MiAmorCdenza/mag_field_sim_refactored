@@ -146,6 +146,11 @@ class Registry:
                 "inputs": {k: v.to_json() for k, v in s["inputs"].items()},
                 "outputs": dict(s["outputs"]),
                 "params": {k: v.to_json() for k, v in s["params"].items()},
+                # #54 节点级说明:doc = 类 docstring(节点文件里已经写好的那些),
+                # formula = 规格里的 LaTeX(可选)。前端在简化面板/属性面板渲染,
+                # 供评委直接看到"这个节点在算什么"
+                "doc": (cls.__doc__ or "").strip(),
+                "formula": s.get("formula", ""),
             })
         return out
 

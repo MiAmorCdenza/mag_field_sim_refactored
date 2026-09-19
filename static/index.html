@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EarthMagFieldSim · 动态节点编辑器</title>
 <link rel="stylesheet" href="/vendor/litegraph.css">
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">   <!-- #54 离线内置的 KaTeX(公式渲染) -->
 <style>
     :root {
         --bg: #0d1117; --panel: #161b22; --border: #30363d;
@@ -350,6 +351,7 @@
 
 <script src="/vendor/litegraph.js"></script>
 <script src="/vendor/three.min.js"></script>
+<script src="/vendor/katex/katex.min.js"></script>   <!-- #54 离线内置的 KaTeX -->
 <script src="/vendor/OrbitControls.js"></script>
 <script src="/renderer/host.js"></script>
 <script src="/renderer/registry.js"></script>
@@ -357,6 +359,7 @@
 <script src="/splitter.js"></script>   <!-- 实验件:窗口分割条;回滚 = 删掉这一行 -->
 <script src="/preset_save.js"></script>   <!-- #45 保存预设按钮 + 覆盖/另存对话框 -->
 <script src="/ui_icons.js"></script>
+<script src="/node_doc.js"></script>   <!-- #54 节点说明/公式渲染(Dock 与属性面板共用) -->
 <script src="/guided_editor.js"></script>   <!-- #47 参数白名单编辑器(简化面板内) -->   <!-- #46 UI 里的 Emoji → 像素图标(自带 emoji 回退) -->
 <!-- #44 引导模式已重写进 static/simple_ui.js(直接过滤节点/参数,不用 MutationObserver);
      Dock 头部的 🎯 开关控制,默认开启。原 guided.js 已删除。 -->

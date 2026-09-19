@@ -16,6 +16,8 @@ def _mesh(self):
 
 @register_node(
     type="dipole",
+    # #54 界面注记:docstring 自动成为「说明」,formula 由内置 KaTeX 渲染
+    formula=r"\mathbf{B}=\frac{\mu_0}{4\pi}\,\frac{3(\mathbf{m}\cdot\hat{\mathbf{r}})\hat{\mathbf{r}}-\mathbf{m}}{r^{3}}",
     name="倾斜偶极子", category="磁场/内部场", icon="🧲",
     inputs={"ps": Port("scalar", default=0.0)},
     outputs={"field": "vector_field"},

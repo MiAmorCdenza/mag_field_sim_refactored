@@ -440,6 +440,8 @@ window.editor = (function () {
     // 两处面板对同一节点永远一致。
     function buildParamsInto(node, body) {
         const spec = node._spec;
+        // #54 节点说明 + 公式:挂在共用函数开头 → 简化面板(Dock)与属性面板同时生效
+        if (window.nodeDoc) { try { window.nodeDoc.attach(node, body); } catch (e) { /* 不影响参数渲染 */ } }
 
         // 未连线的输入端口(默认值 = 参数)
         for (const [pname, port] of Object.entries(spec.inputs)) {

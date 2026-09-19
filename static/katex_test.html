@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>KaTeX 可用性测试(#54)</title>
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<script src="/vendor/katex/katex.min.js"></script>
+<style>
+    body { margin: 0; padding: 18px 22px; background: #0d1117; color: #c9d1d9;
+           font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+    h2 { color: #58a6ff; font-size: 15px; margin: 16px 0 8px; }
+    .note { color: #8b949e; font-size: 12px; margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; }
+    td { padding: 7px 10px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+    td.k { color: #7d8b9a; font-size: 12px; width: 190px; }
+    td.tex { width: 46%; }
+    td.uni { color: #9fd6b0; font-family: Consolas, monospace; font-size: 12px; width: 30%; }
+    .katex { font-size: 1.06em; }
+    .bad { color: #f85149; font-family: Consolas, monospace; font-size: 12px; }
+    code { color: #d2a8ff; background: #161b22; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h2>KaTeX 本地渲染测试(对照:左 = KaTeX,右 = 纯文本 Unicode 备选)</h2>
+<div class="note">离线内置于 <code>static/vendor/katex/</code>(js 271 KB + css 23 KB + 12 字体,共 453 KB)。
+下方公式都是本项目节点真正要标注的内容;若 KaTeX 有问题,则改用右侧纯文本方案。</div>
+<table id="rows"></table>
+
+<script>
+const ROWS = [
+  ["偶极子 · 磁场", String.raw`\mathbf{B}=\frac{\mu_0}{4\pi}\,\frac{3(\mathbf{m}\cdot\hat{\mathbf{r}})\hat{\mathbf{r}}-\mathbf{m}}{r^{3}}`,
+   "B = μ₀/4π · [3(m·r̂)r̂ − m] / r³"],
+  ["偶极子 · 倾角", String.raw`\psi=\arcsin\!\big(\sin 23.44^\circ\cdot\cos H\big)`,
+   "ψ = arcsin(sin23.44° · cos H)"],
+  ["A2000 抛物面 · 分源", String.raw`\mathbf{B}=\mathbf{B}_{\mathrm{dip}}+\mathbf{B}_{\mathrm{ring}}+\mathbf{B}_{\mathrm{tail}}+\mathbf{B}_{\mathrm{CF}}+\mathbf{B}_{\mathrm{FAC}}+\mathbf{B}_{\mathrm{IMF}}`,
+   "B = B_dip + B_ring + B_tail + B_CF + B_FAC + B_IMF"],
+  ["粒子 · 俯仰角", String.raw`\alpha=\arccos\frac{\mathbf{v}\cdot\mathbf{B}}{|\mathbf{v}|\,|\mathbf{B}|}`,
+   "α = arccos( v·B / (|v||B|) )"],
+  ["粒子 · 回旋半径 / 周期", String.raw`R_g=\frac{\gamma m v_\perp}{|q|B},\qquad T_g=\frac{2\pi\gamma m}{|q|B}`,
+   "R_g = γmv⊥/(|q|B),  T_g = 2πγm/(|q|B)"],
+  ["粒子 · 损失锥", String.raw`\alpha_{\mathrm{loss}}=\arcsin\sqrt{B/B_{\mathrm{surf}}}`,
+   "α_loss = arcsin√(B/B_surf)"],
+  ["粒子 · 第一绝热不变量", String.raw`\mu=\frac{E_\perp}{B}\approx\text{const}`,
+   "μ = E⊥/B ≈ const"],
+  ["Boris 积分器 · 半步加速", String.raw`\mathbf{v}^{-}=\mathbf{v}^{n}+\frac{q\,\mathbf{E}}{m}\frac{\Delta t}{2},\qquad
+   \mathbf{t}=\frac{q\,\mathbf{B}}{m}\frac{\Delta t}{2}`,
+   "v⁻ = vⁿ + (qE/m)(Δt/2),  t = (qB/m)(Δt/2)"],
+  ["太阳风 · 动压与磁层顶", String.raw`P_{\mathrm{sw}}=1.67\times10^{-6}\rho V^{2},\qquad
+   R_1=(11.4+0.013B_z)\,P_{\mathrm{sw}}^{-1/6.6}`,
+   "P_sw = 1.67e-6·ρV²,  R₁ = (11.4+0.013B_z)·P_sw^(−1/6.6)"],
+  ["环电流 / 尾瓣磁通", String.raw`B_R=\mathrm{Dst}-10,\qquad B_T=-\mathrm{AL}/7`,
+   "B_R = Dst − 10,  B_T = −AL/7"],
+];
+
+const tb = document.getElementById("rows");
+let okCount = 0, badCount = 0;
+for (const [name, tex, uni] of ROWS) {
+  const tr = document.createElement("tr");
+  const td1 = document.createElement("td"); td1.className = "k"; td1.textContent = name;
+  const td2 = document.createElement("td"); td2.className = "tex";
+  const td3 = document.createElement("td"); td3.className = "uni"; td3.textContent = uni;
+  tr.append(td1, td2, td3);
+  tb.appendChild(tr);
+  try {
+    katex.render(tex, td2, { throwOnError: true, displayMode: false });
+    okCount++;
+  } catch (e) {
+    td2.innerHTML = '<span class="bad">KaTeX 失败:' + e.message + '</span>';
+    badCount++;
+  }
+}
+const tail = document.createElement("div");
+tail.className = "note";
+tail.style.marginTop = "12px";
+tail.textContent = "结果:成功 " + okCount + " 条 / 失败 " + badCount + " 条;KaTeX 版本 " +
+                   (window.katex ? katex.version : "(未加载)");
+document.body.appendChild(tail);
+</script>
+</body>
+</html>
