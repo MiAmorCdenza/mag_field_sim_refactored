@@ -40,7 +40,7 @@ class Port:
     """输入端口定义(兼具参数语义)。"""
 
     def __init__(self, ptype, default=None, min=None, max=None,
-                 ui="slider", desc="", choices=None):
+                 ui="slider", desc="", choices=None, label="", formula=""):
         if ptype not in PORT_TYPES:
             raise ValueError(f"未知端口类型: {ptype}")
         self.ptype = ptype
@@ -50,12 +50,16 @@ class Port:
         self.ui = ui          # slider | number | select | checkbox | text | color
         self.desc = desc
         self.choices = choices
+        #: 中文显示名(#54):界面优先显示它,变量名以小字附后(评委友好)
+        self.label = label
+        #: 该参数/端口的 LaTeX 记号(#54):前端用内置 KaTeX 渲染
+        self.formula = formula
 
     def to_json(self):
         return {
             "ptype": self.ptype, "default": self.default,
             "min": self.min, "max": self.max, "ui": self.ui,
-            "desc": self.desc, "choices": self.choices,
+            "desc": self.desc, "choices": self.choices, "label": self.label, "formula": self.formula,
         }
 
     @classmethod
@@ -71,7 +75,7 @@ class Param:
     """无端口参数(枚举、开关等)。"""
 
     def __init__(self, ptype, default=None, min=None, max=None,
-                 desc="", choices=None):
+                 desc="", choices=None, label="", formula=""):
         if ptype not in PORT_TYPES:
             raise ValueError(f"未知参数类型: {ptype}")
         self.ptype = ptype
@@ -80,12 +84,16 @@ class Param:
         self.max = max
         self.desc = desc
         self.choices = choices
+        #: 中文显示名(#54):界面优先显示它,变量名以小字附后(评委友好)
+        self.label = label
+        #: 该参数/端口的 LaTeX 记号(#54):前端用内置 KaTeX 渲染
+        self.formula = formula
 
     def to_json(self):
         return {
             "ptype": self.ptype, "default": self.default,
             "min": self.min, "max": self.max,
-            "desc": self.desc, "choices": self.choices,
+            "desc": self.desc, "choices": self.choices, "label": self.label, "formula": self.formula,
         }
 
     @classmethod

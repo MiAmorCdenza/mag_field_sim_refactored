@@ -19,7 +19,7 @@ def _mesh(self):
     # #54 界面注记:docstring 自动成为「说明」,formula 由内置 KaTeX 渲染
     formula=r"\mathbf{B}=\frac{\mu_0}{4\pi}\,\frac{3(\mathbf{m}\cdot\hat{\mathbf{r}})\hat{\mathbf{r}}-\mathbf{m}}{r^{3}}",
     name="倾斜偶极子", category="磁场/内部场", icon="🧲",
-    inputs={"ps": Port("scalar", default=0.0)},
+    inputs={"ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class DipoleNode(Node):
@@ -50,7 +50,7 @@ def _external_vectorize(fn):
     type="t89",
     name="T89 (1989) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class T89Node(Node):
@@ -95,7 +95,7 @@ def _safe(fn):
     type="t96",
     name="T96 (1996) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class T96Node(Node):
@@ -112,7 +112,7 @@ class T96Node(Node):
     type="t01",
     name="T01 (2001) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class T01Node(Node):
@@ -138,7 +138,7 @@ class T01Node(Node):
     type="t04",
     name="T04 (2004) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class T04Node(Node):
@@ -162,7 +162,7 @@ class T04Node(Node):
     type="ts05",
     name="TS05 (2005 · 暴时) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class TS05Node(Node):
@@ -192,7 +192,7 @@ class TS05Node(Node):
     type="ta16",
     name="TA16 RBF (2016) 外部场", category="磁场/外部模型", icon="🌐", cost="expensive",
     inputs={"kp": Port("scalar", default=2.0, min=0.0, max=9.0),
-            "ps": Port("scalar", default=0.0)},
+            "ps": Port("scalar", default=0.0, label="倾角", formula=r"\psi")},
     outputs={"field": "vector_field"},
 )
 class TA16Node(Node):

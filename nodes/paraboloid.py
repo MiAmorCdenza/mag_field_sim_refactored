@@ -41,6 +41,8 @@ except ImportError:      # 兜底:某些启动方式下仓库根不在 sys.path
 
 @register_node(
     type="paraboloid",
+    # #54 界面注记:docstring 自动成为「说明」,formula 由内置 KaTeX 渲染
+    formula=r"\mathbf{B}=\mathbf{B}_{\mathrm{dip}}+\mathbf{B}_{\mathrm{ring}}+\mathbf{B}_{\mathrm{tail}}+\mathbf{B}_{\mathrm{CF}}+\mathbf{B}_{\mathrm{FAC}}+\mathbf{B}_{\mathrm{IMF}}",
     name="A2000 抛物面(内场)", category="磁场/内部场", icon="🧭",
     cost="expensive",
     inputs={

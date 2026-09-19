@@ -238,7 +238,7 @@ window.editor = (function () {
         const row = document.createElement("div");
         row.className = "prop-row";
         const label = document.createElement("label");
-        label.textContent = key;
+        if (spec && spec.label) { label.textContent = spec.label + " "; const vn = document.createElement("span"); vn.style.color = "#6e7681"; vn.style.fontFamily = "Consolas, monospace"; vn.style.fontSize = "0.68rem"; vn.textContent = String(key).replace(/^输入 · /, ""); label.appendChild(vn); if (spec.formula) { const fx = document.createElement("span"); fx.style.marginLeft = "6px"; label.appendChild(fx); if (window.nodeDoc) window.nodeDoc.renderTex(fx, spec.formula); else fx.textContent = spec.formula; } } else { label.textContent = key; }
         row.appendChild(label);
 
         const valSpan = document.createElement("span");

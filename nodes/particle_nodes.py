@@ -86,6 +86,8 @@ _SPECIES_PRESETS = {
 
 @register_node(
     type="particle_emitter",
+    # #54 界面注记:docstring 自动成为「说明」,formula 由内置 KaTeX 渲染
+    formula=r"\alpha=\arccos\frac{\mathbf{v}\cdot\mathbf{B}}{|\mathbf{v}|\,|\mathbf{B}|}",
     name="粒子发射器", category="粒子/来源", icon="⏺", domain="particle",
     inputs={"types": Port("any", default=None,
                           desc="物种列表(留空亦可:物种是图级声明,见文档)"),
