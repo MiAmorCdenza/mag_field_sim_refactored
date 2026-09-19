@@ -93,6 +93,26 @@ void register_preset_routes(App& app, const std::string& root, ValidateFn valida
             }
             id = cand;
         }
+        // #51 合并旧文件的元数据:只覆盖请求里带来的字段,其余(group/model/order…)
+        // 原样保留。否则"保存/覆盖"会把 preset 块**整块替换** → 分类丢失、预设掉进"其他"
+        // (实测踩过),demo(讲解顺序/白名单)也会一起没。
+        const std::string merge_old_meta = root + "/graphs/preset_" + id + ".json";
+        {
+            std::ifstream fin(merge_old_meta, std::ios::binary);
+            if (fin) {
+                std::stringstream ss;
+                ss << fin.rdbuf();
+                json olddoc = json::parse(ss.str(), nullptr, false);
+                if (olddoc.is_object()) {
+                    if (olddoc.contains("preset") && olddoc["preset"].is_object()) {
+                        for (auto it = olddoc["preset"].begin(); it != olddoc["preset"].end(); ++it)
+                            if (!pre.contains(it.key())) pre[it.key()] = it.value();
+                    }
+                    if (!graph.contains("demo") && olddoc.contains("demo"))
+                        graph["demo"] = olddoc["demo"];      // 保留白名单/讲解顺序
+                }
+            }
+        }
         pre["id"] = id;
         if (!pre.contains("name") || !pre["name"].is_string() ||
             pre["name"].get<std::string>().empty())

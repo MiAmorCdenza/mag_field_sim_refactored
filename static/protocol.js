@@ -363,6 +363,15 @@ window.protocol = (function () {
         const jsonId = node.properties.json_id || "n" + node.id;
         const key = jsonId + ":" + name;
         clearTimeout(debounceTimers[key]);
+        // #51 渲染项参数:除发给服务器外,**本地立即生效**。
+        // 否则像"磁感线着色方式(color_mode)"这类纯客户端参数要等服务器重新
+        // 广播几何帧才变 —— 实测:改了 color_mode 画面完全不动(renderHost 收不到)。
+        if (specType && specType.indexOf("render_item_") === 0 && window.renderHost) {
+            const patch = {};
+            patch[name] = value;
+            try { window.renderHost.applyParams(jsonId, patch); }
+            catch (e) { window.uiLog && window.uiLog("warn", "render_param_local", String(e)); }
+        }
         debounceTimers[key] = setTimeout(() => {
             wsSend({ type: "node.param", node: jsonId, name, value });
         }, 250);
