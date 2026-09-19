@@ -121,6 +121,24 @@ class Registry:
     def list_types(self):
         return sorted(self.nodes)
 
+    @staticmethod
+    def _with_labels(node_type, objs):
+        """#54 套用中文名补丁(engine/labels.py):节点自带 label 优先。
+
+        界面显示「中文名 + 变量名小字」,评委看中文、调参者对照变量名。
+        """
+        try:
+            from engine.labels import label_for
+        except Exception:
+            return {k: v.to_json() for k, v in objs.items()}
+        out = {}
+        for k, v in objs.items():
+            d = v.to_json()
+            if not d.get("label"):
+                d["label"] = label_for(node_type, k, d.get("label") or "")
+            out[k] = d
+        return out
+
     def describe(self):
         """节点面板数据(前端编辑器用)。"""
         out = []
@@ -143,9 +161,9 @@ class Registry:
                 # 订阅通道(#32):渲染项声明它消费的数据通道;未接线 = 不订阅
                 # (不渲染 + 告警)。插件作者照此声明即可被宿主路由到对应帧
                 "channels": s.get("channels") or [],
-                "inputs": {k: v.to_json() for k, v in s["inputs"].items()},
+                "inputs": self._with_labels(t, s["inputs"]),
                 "outputs": dict(s["outputs"]),
-                "params": {k: v.to_json() for k, v in s["params"].items()},
+                "params": self._with_labels(t, s["params"]),
                 # #54 节点级说明:doc = 类 docstring(节点文件里已经写好的那些),
                 # formula = 规格里的 LaTeX(可选)。前端在简化面板/属性面板渲染,
                 # 供评委直接看到"这个节点在算什么"
