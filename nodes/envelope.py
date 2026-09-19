@@ -93,6 +93,8 @@ class InternalBlendNode(Node):
 
 @register_node(
     type="magnetopause",
+    # #54 界面注记:docstring 自动成为说明,formula 由内置 KaTeX 渲染
+    formula=r"R_1=(11.4+0.013B_z)\,P_{\mathrm{sw}}^{-1/6.6},\qquad P_{\mathrm{sw}}=1.67\times10^{-6}\rho V^{2}",
     name="磁层顶包边", category="磁场/磁层顶", icon="🛡",
     inputs={"internal": Port("vector_field"),
             "dipole": Port("vector_field", default=None),

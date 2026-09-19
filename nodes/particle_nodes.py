@@ -112,6 +112,8 @@ class ParticleEmitterNode(ParticleNodeBase):
 
 @register_node(
     type="particle_species",
+    # #54 界面注记:docstring 自动成为说明,formula 由内置 KaTeX 渲染
+    formula=r"\omega_c=\frac{|q|B}{m},\qquad R_g=\frac{\gamma m v_\perp}{|q|B}",
     name="粒子物种", category="粒子/来源", icon="◉", domain="particle",
     inputs={},
     outputs={"types": "any"},
@@ -209,6 +211,8 @@ class ParticlePopulationNode(ParticleNodeBase):
 
 @register_node(
     type="boris_integrator",
+    # #54 界面注记:docstring 自动成为说明,formula 由内置 KaTeX 渲染
+    formula=r"\mathbf{v}^{-}=\mathbf{v}^{n}+\frac{q\,\mathbf{E}}{m}\frac{\Delta t}{2},\qquad \mathbf{t}=\frac{q\,\mathbf{B}}{m}\frac{\Delta t}{2}",
     name="Boris 积分器", category="粒子/积分", icon="⑂", domain="particle",
     inputs=_INTEGRATOR_INPUTS,
     outputs={},

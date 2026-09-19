@@ -166,6 +166,8 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
 
 @register_node(
     type="render_item_particle_trace",
+    # #54 界面注记:docstring 自动成为说明,formula 由内置 KaTeX 渲染
+    formula=r"\mu=\frac{E_\perp}{B}\approx\mathrm{const}\quad(\text{磁镜捕获的不变量})",
     name="粒子轨迹渲染项(累积)", category="渲染", icon="彡", domain="render",
     inputs={"data": Port("particle_buffer", default=None,
                          desc="粒子流(必需:接「输出编码器.particles」;"
