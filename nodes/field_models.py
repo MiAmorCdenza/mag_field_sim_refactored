@@ -99,6 +99,8 @@ def _safe(fn):
     outputs={"field": "vector_field"},
 )
 class T96Node(Node):
+    """来源:Tsyganenko 1996,以太阳风动压 Pdyn、Dst、IMF By/Bz 参数化。
+特性:外部场(不含偶极子,需另加内部场);含磁层顶与尾电流,适合 r 约 10 Re 以内的磁层位形。"""
     def compute(self, kp, ps):
         import geopack.t96 as _t96
         X, Y, Z = self.lattice.mesh()
@@ -142,6 +144,8 @@ class T01Node(Node):
     outputs={"field": "vector_field"},
 )
 class T04Node(Node):
+    """来源:Tsyganenko 2004(TS05 的前身),细分各电流系贡献。
+特性:外部场(不含偶极子);面向强扰动,计算量比 T96/T01 更大。"""
     def compute(self, kp, ps):
         import geopack.t04 as _t04
         import geopack.t96 as _t96
