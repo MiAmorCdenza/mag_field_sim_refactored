@@ -3,7 +3,10 @@
   "id": "dipole_single",
   "name": "标准偶极子 · 单粒子",
   "desc": "倾斜偶极子 + 单粒子注入:确定性初条件、磁镜捕获、初条件预览与俯仰角锥。调试单粒子工具的最小闭环。",
-  "sort": 10
+  "sort": 10,
+  "group": "粒子运动",
+  "model": "标准偶极子 · 单粒子",
+  "order": 10
  },
  "version": 1,
  "lattice": {
@@ -217,5 +220,36 @@
    ]
   }
  ],
- "outputs": {}
+ "outputs": {},
+ "demo": {
+  "title": "单粒子 · 只看三个旋钮",
+  "steps": [
+   "① 调倾角 ps 看轨道倾角变化",
+   "② 调初速度 v_base 看回旋半径",
+   "③ 暂停后点粒子看能量/俯仰角"
+  ],
+  "nodes": [
+   {
+    "type": "dipole",
+    "params": [
+     "ps"
+    ],
+    "note": "倾角:北轴朝日的角度"
+   },
+   {
+    "type": "particle_emitter",
+    "params": [
+     "v_base",
+     "angle_random"
+    ]
+   },
+   {
+    "type": "boris_integrator",
+    "params": [
+     "dt",
+     "substeps"
+    ]
+   }
+  ]
+ }
 }

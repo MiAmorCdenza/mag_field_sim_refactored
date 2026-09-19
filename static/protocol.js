@@ -47,8 +47,7 @@ window.protocol = (function () {
                       `  E ${Object.keys(g.links || {}).length}`);
         }
         if (plan.count) {
-            bits.push(plan.slow_path ? `计划粒子 ${plan.count} (slow_path)`
-                                     : `计划粒子 ${plan.count}`);
+        // #50 HUD 只保留一行粒子数(n = …);「计划粒子」与之重复,已移除
             // 持续创生(#35):关掉会衰减,直接写在 HUD 上省得用户猜
             if (plan.respawn === false) bits.push("无重生(会衰减)");
         }

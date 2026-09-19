@@ -3,7 +3,10 @@
   "id": "paraboloid",
   "name": "A2000 抛物面磁层",
   "desc": "A2000/CPMOD 内磁场:偶极 + 环电流 + 尾电流 + 磁层顶屏蔽 + Region-1 FAC + 穿透 IMF;Dst 决定环电流强度。与「标准偶极子 · 单粒子」对照可见日侧压缩、夜侧拉伸与内区削弱。",
-  "sort": 45
+  "sort": 45,
+  "group": "磁场结构",
+  "model": "A2000 抛物面磁层",
+  "order": 10
  },
  "version": 1,
  "lattice": {
