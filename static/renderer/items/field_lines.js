@@ -96,7 +96,7 @@ registerRenderItem({
             const geo = new this.three.BufferGeometry().setFromPoints(pts);
             if (mags) geo.userData.bmag = mags;   // 换模式时重算顶点色用
             let mat;
-            if (this.params.color) {                    // 手动统一色优先
+            if (this.isSolid()) {                         // 单色优先(color 有值 或 color_mode=solid)
                 mat = new this.three.LineBasicMaterial({
                     color: this.params.color,
                     transparent: true,
@@ -138,9 +138,9 @@ registerRenderItem({
         for (const l of this.lines) {
             const cls = (l.userData && l.userData.cls) | 0;
             const reason = (l.userData && l.userData.reason) | 0;
-            if (this.params.color) {
+            if (this.isSolid()) {
                 l.material.vertexColors = false;
-                l.material.color.set(this.params.color);
+                l.material.color.set(this.solidColor());
                 continue;
             }
             if (mode === "bmag") {
@@ -176,10 +176,10 @@ registerRenderItem({
         if (!el) return;
         const mode = this.params.color || this.params.color_mode || "class";
         if (!this.lines.length) { el.style.display = "none"; return; }
-        if (this.params.color) {
+        if (this.isSolid()) {
             el.innerHTML = `<b>场线</b>\n<span class="row">` +
                 `<span class="sw" style="background:${this.params.color}"></span>` +
-                `${this.lines.length} 条 · 统一色(覆盖着色方式)</span>`;
+                `${this.lines.length} 条 · 单色 ${this.solidColor()}</span>`;
         } else if (mode === "bmag" && this.meta) {
             const unit = this.meta.unit || "";
             const stops = [];
@@ -211,6 +211,10 @@ registerRenderItem({
         el.style.display = "block";
     },
 
+    // 单色:color 有值,或 color_mode 显式选了 solid → 全部线统一该色(优先于其它模式)
+    isSolid() { return this.params.color_mode === "solid" || !!this.params.color; },
+    solidColor() { return this.params.color || "#ffcc66"; },
+
     onParam(params) {
         this.params = Object.assign({}, this.params, params);
         if (params.visible !== undefined) this.group.visible = !!params.visible;
@@ -220,7 +224,8 @@ registerRenderItem({
         // #52 用户显式选了着色方式 → 清掉"统一色":固定 color 会永久覆盖 color_mode,
         //     表现为"改成 bmag/class 画面不变"(图例那时写的是"统一色")。
         //     想让固定色生效,再往 color 里填一个颜色即可(填色优先于模式)。
-        if ("color_mode" in params && params.color_mode) this.params.color = "";
+        if ("color_mode" in params && params.color_mode && params.color_mode !== "solid") this.params.color = "";
+        if (params.color_mode === "solid" && !this.params.color) this.params.color = "#ffcc66";   // 选单色但没填色 → 给个默认
         // 改色/换模式立即生效(否则要等下一次几何帧/重新烘焙)
         if ("color" in params || "color_mode" in params) this.recolor();
     },

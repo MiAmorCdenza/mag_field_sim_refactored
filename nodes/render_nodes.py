@@ -75,7 +75,7 @@ class RenderPipelineStartNode(RenderNodeBase):
         "color": Param("string", default="",
                        desc="留空 = 用下方 color_mode;填值 = 全部线统一该色"),
         "color_mode": Param("enum", default="class",
-                            choices=["class", "bmag", "reason"],
+                            choices=["class", "bmag", "reason", "solid"],
                             desc="class=拓扑分类(闭合蓝/开放红/太阳风绿);"
                                  "bmag=逐点场强(viridis+log,单位见右上角色标);"
                                  "reason=终止原因(落地/出域/绕圈/点数上限/场近零)"),
@@ -104,7 +104,7 @@ class RenderItemFieldLinesNode(RenderNodeBase):
         "color": Param("string", default="",
                        desc="留空 = 用下方 color_mode;填值 = 全部线统一该色"),
         "color_mode": Param("enum", default="class",
-                            choices=["class", "bmag", "reason"],
+                            choices=["class", "bmag", "reason", "solid"],
                             desc="class=默认暖黄;bmag=逐点场强(viridis+log);"
                                  "reason=终止原因(落地/出域/绕圈/点数上限/场近零)"),
         "dsmax": Param("scalar", default=0.2, min=0.05, max=2.0),
