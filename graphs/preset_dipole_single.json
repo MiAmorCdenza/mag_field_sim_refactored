@@ -95,11 +95,12 @@
   },
   {
    "id": "rtrl",
-   "type": "render_item_particle_trails",
+   "type": "render_item_particle_trace",
    "params": {
-    "trail_length": 200,
+    "layer": 2,
     "opacity": 0.9,
-    "layer": 2
+    "max_points": 20000,
+    "max_traced_particles": 8
    }
   },
   {

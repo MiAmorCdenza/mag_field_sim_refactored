@@ -164,6 +164,35 @@ class RenderItemParticleTrailsNode(RenderNodeBase):
     trail_length = 每粒子轨迹点数(0 = 关闭);轨迹颜色随粒子物种。
     """
 
+@register_node(
+    type="render_item_particle_trace",
+    name="粒子轨迹渲染项(累积)", category="渲染", icon="彡", domain="render",
+    inputs={"data": Port("particle_buffer", default=None,
+                         desc="粒子流(必需:接「输出编码器.particles」;"
+                              "轨迹由客户端从该帧流累积)")},
+    outputs={},
+    channels=["particles"],
+    # 配套节点(#31):放置渲染项时补一个「渲染管线起始」(全局背景/帧率)
+    companions=[{"type": "render_pipeline_start"}],
+    params={
+        **_RENDER_COMMON,
+        "layer": Param("int", default=2, min=0, max=3,
+                       desc="渲染层(默认 2:粒子层)"),
+        "max_points": Param("int", default=20000, min=100, max=200000,
+                            desc="每粒子最多记录的点数;写满后**冻结但保留**轨迹"),
+        "max_traced_particles": Param("int", default=8, min=1, max=64,
+                                      desc="只对前 K 个粒子累积(控显存;其余不记录)"),
+    },
+    version=1,
+)
+class RenderItemParticleTraceNode(RenderNodeBase):
+    """粒子轨迹(累积,不消失):与「粒子拖尾渲染项」并列的独立插件。
+
+    区别:拖尾只保留最近 trail_length 个点(旧点被覆盖);
+    本项一路累积,写满 max_points 后停止记录但**保留**轨迹 ——
+    适合单粒子看完整轨道/漂移/弹跳。改参数重建不丢轨迹,重生才清。
+    """
+
 
 @register_node(
     type="render_item_source_preview",
