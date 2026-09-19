@@ -238,7 +238,34 @@ window.editor = (function () {
         const row = document.createElement("div");
         row.className = "prop-row";
         const label = document.createElement("label");
-        label.textContent = key;
+        // #54 中文名优先:spec.label(中文)为主,变量名以小字附后(评委看中文,调参看变量名);
+        // 参数的 LaTeX 记号内联渲染。整段包 try/catch —— 任何意外都退回变量名,
+        // **绝不让参数渲染中断**(上一次事故:这里抛异常 → 参数整块消失)。
+        try {
+            if (spec && spec.label) {
+                label.textContent = spec.label + " ";
+                const vn = document.createElement("span");
+                vn.style.color = "#6e7681";
+                vn.style.fontFamily = "Consolas, monospace";
+                vn.style.fontSize = "0.68rem";
+                vn.textContent = String(key).replace(/^输入 · /, "");
+                label.appendChild(vn);
+                if (spec.formula) {
+                    const fx = document.createElement("span");
+                    fx.style.marginLeft = "6px";
+                    label.appendChild(fx);
+                    if (window.nodeDoc && window.nodeDoc.renderTex) {
+                        window.nodeDoc.renderTex(fx, spec.formula);
+                    } else {
+                        fx.textContent = spec.formula;
+                    }
+                }
+            } else {
+                label.textContent = key;
+            }
+        } catch (e) {
+            label.textContent = key;
+        }
         row.appendChild(label);
 
         const valSpan = document.createElement("span");
