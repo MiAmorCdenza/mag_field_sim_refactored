@@ -1,0 +1,100 @@
+/* 亮色主题(#55)—— 面板亮色、3D 视口保持深色(文字好读 + 场景对比度好)。
+ *
+ * 用法:由 static/theme.js 在 <body> 上加 class="light" 时生效。
+ * 设计:
+ *   · 优先覆盖 :root 变量(项目里大多数规则都用 var(--…) → 一处改全身)✓
+ *   · 再补一批硬编码颜色的规则(工具栏按钮/输入框/Dock/卡片/说明区/检查器…)✓
+ *   · **不动** 3D 视口与 HUD:它们浮在深色画布上,保持原样才看得清 ✓
+ * 回退:删掉 index.html 里 <script src="/theme.js"></script> 一行即可。
+ */
+
+body.light {
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --dim: #57606a;
+    --accent: #0969da;
+    --accent2: #0969da;
+    background: #f6f8fa;
+    color: #1f2328;
+}
+
+/* 顶栏与按钮 */
+body.light #topbar { background: #ffffff; }
+body.light #topbar .title { color: #0969da; }
+body.light .badge { background: #eaeef2; color: #57606a; border-color: #d0d7de; }
+body.light .badge.ok { color: #1a7f37; border-color: #1a7f37; }
+body.light button { background: #f6f8fa; color: #1f2328; border-color: #d0d7de; }
+body.light button:hover { border-color: #0969da; color: #0969da; }
+body.light button.primary { background: #0969da; border-color: #0969da; color: #ffffff; }
+body.light button.dirty { background: #fff8c5; border-color: #d4a72c; color: #7d4e00; }
+
+/* 表单控件(参数滑杆/枚举/文本框) */
+body.light input,
+body.light select,
+body.light textarea {
+    background: #ffffff !important;
+    color: #1f2328 !important;
+    border-color: #d0d7de !important;
+}
+body.light input[type=range] { accent-color: #0969da; }
+body.light .prop-row label { color: #57606a; }
+body.light .prop-row .val { color: #0969da; }
+body.light #outputs-json, body.light #code-text { background: #ffffff; color: #1f2328; }
+
+/* Dock(简化面板) */
+body.light #dock { background: #ffffff; border-right-color: #d0d7de; }
+body.light #dock-head { background: #f6f8fa; }
+body.light #dock-head button { background: #ffffff; }
+body.light .dock-group-head { color: #57606a; }
+body.light .dock-node { border-color: #d0d7de; }
+body.light .dock-node-head { background: #f6f8fa; color: #1f2328; }
+body.light .dock-node-head:hover { background: #eaeef2; }
+body.light .dock-id, body.light .dock-caret { color: #57606a; }
+body.light .dock-node-body .hint, body.light .hint { color: #57606a; }
+
+/* 右栏:检查器与属性面板 */
+body.light #inspector, body.light #props { background: #ffffff; }
+body.light .panel-title { color: #0969da; }
+body.light .insp-title { color: #57606a; }
+body.light #inspector-body .kv .k { color: #57606a; }
+body.light #inspector-body .kv .v { color: #0969da; }
+body.light .insp-head { color: #1f2328; }
+body.light .insp-table td.k { color: #57606a; }
+body.light .insp-table td.v { color: #0969da; }
+
+/* 节点说明区(#54)与公式 */
+body.light .node-doc { background: #f6f8fa; border-left-color: #0969da; }
+body.light .node-doc .nd-title { color: #0969da; }
+body.light .node-doc .nd-doc { color: #57606a; }
+body.light .node-doc .nd-formula { background: #ffffff; border-color: #d0d7de; color: #1f2328; }
+body.light .node-doc .nd-more { background: #ffffff; color: #57606a; border-color: #d0d7de; }
+body.light .node-doc .nd-raw { color: #8250df; }
+
+/* 引导页(卡片) */
+body.light #launcher { background: radial-gradient(1200px 600px at 20% 0%, #ffffff 0%, #f6f8fa 60%); }
+body.light #launcher h1 { color: #1f2328; }
+body.light #launcher .sub { color: #57606a; }
+body.light #launcher .sub2, body.light #launcher-hint { color: #6e7781; }
+body.light .preset-card { background: #ffffff; border-color: #d0d7de; color: #1f2328; }
+body.light .preset-card:hover { border-color: #0969da; }
+body.light .preset-card.custom { background: #f6f8fa; }
+body.light .preset-card .pc-desc { color: #57606a; }
+body.light .pc-chip { background: #eaeef2; color: #57606a; border-color: #d0d7de; }
+body.light #launcher-crumb { color: #57606a; }
+body.light #launcher-crumb .crumb-btn { background: #ffffff; color: #1f2328; }
+body.light #launcher-crumb .crumb-cur { color: #0969da; }
+
+/* 行表编辑器 / 调色板 / 代码编辑器 */
+body.light .rows-editor input, body.light .rows-editor select { background: #ffffff; color: #1f2328; }
+body.light #palette { background: #ffffff; }
+body.light #palette-filter { background: #ffffff; }
+body.light .palette-item:hover { background: #eaeef2; }
+body.light #code-editor { background: #ffffff; }
+
+/* 悬浮提示(在深色视口上 → 用亮底深字,仍然清楚) */
+body.light #hover-tip { background: rgba(255, 255, 255, .95); color: #1f2328; border-color: #d0d7de; }
+
+/* 注意:HUD(#sim-hud)与场线色标(#line-legend)浮在**深色 3D 画布**上,
+   刻意不覆盖 —— 亮底会看不清线,深底才对比清晰。 */
