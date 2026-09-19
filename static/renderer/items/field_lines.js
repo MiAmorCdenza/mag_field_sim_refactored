@@ -179,7 +179,7 @@ registerRenderItem({
         if (this.params.color) {
             el.innerHTML = `<b>场线</b>\n<span class="row">` +
                 `<span class="sw" style="background:${this.params.color}"></span>` +
-                `${this.lines.length} 条 · 统一色</span>`;
+                `${this.lines.length} 条 · 统一色(覆盖着色方式)</span>`;
         } else if (mode === "bmag" && this.meta) {
             const unit = this.meta.unit || "";
             const stops = [];
@@ -217,6 +217,10 @@ registerRenderItem({
         if (params.opacity !== undefined) {
             for (const l of this.lines) l.material.opacity = params.opacity;
         }
+        // #52 用户显式选了着色方式 → 清掉"统一色":固定 color 会永久覆盖 color_mode,
+        //     表现为"改成 bmag/class 画面不变"(图例那时写的是"统一色")。
+        //     想让固定色生效,再往 color 里填一个颜色即可(填色优先于模式)。
+        if ("color_mode" in params && params.color_mode) this.params.color = "";
         // 改色/换模式立即生效(否则要等下一次几何帧/重新烘焙)
         if ("color" in params || "color_mode" in params) this.recolor();
     },
