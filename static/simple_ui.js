@@ -132,11 +132,27 @@ window.simpleUI = (function () {
                 localStorage.setItem(KEY, on ? "1" : "0");
             },
             load: function () {
+                // 优先级:本机白名单覆盖(编辑器写的)→ 当前预设的 demo 字段 → 全局清单
+                var local = null;
+                try { local = JSON.parse(localStorage.getItem("mf.guided.spec") || "null"); }
+                catch (e) { local = null; }
+                if (local && local.nodes) { spec = local; return Promise.resolve(); }
+                var gdoc = window.editor && window.editor.serverDoc;
+                if (gdoc && gdoc.demo && gdoc.demo.nodes) { spec = gdoc.demo; return Promise.resolve(); }
                 return fetch("/ui/demo_focus.json", { cache: "no-store" })
                     .then(function (r) { return r.ok ? r.json() : null; })
                     .then(function (j) { if (j) spec = j; })
                     .catch(function () { /* 没清单 → 不过滤 */ });
             },
+            // 供白名单编辑器用:设置并立即生效(默认存 localStorage,不动预设文件)
+            setSpec: function (s, persist) {
+                spec = s || { title: "引导模式", nodes: [] };
+                if (persist !== false) {
+                    try { localStorage.setItem("mf.guided.spec", JSON.stringify(spec)); }
+                    catch (e) { /* 配额满就算了 */ }
+                }
+            },
+            raw: function () { return spec; },
             title: function () { return spec.title || "引导模式"; },
             allows: function (node) { return !on || !!entryOf(node); },
             // 参数行过滤:编辑器生成的 label 以参数名开头("输入 · dst" / "dst · 说明")
@@ -156,6 +172,7 @@ window.simpleUI = (function () {
             },
         };
     })();
+    window.__GUIDED = GUIDED;   // 供参数白名单编辑器读写(localStorage 覆盖)
     function build() {
         const box = el("dock-body");
         if (!box) return;
