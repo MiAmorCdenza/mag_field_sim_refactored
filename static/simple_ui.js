@@ -166,8 +166,15 @@ window.simpleUI = (function () {
                     if (!lab) continue;
                     let t = (lab.textContent || "").trim();
                     if (t.indexOf("输入 · ") === 0) t = t.slice(4);
-                    const pname = t.split(" · ")[0].trim();
-                    if (pname) row.style.display = keep.indexOf(pname) >= 0 ? "" : "none";
+                    const cands = new Set();
+                    t.split(" · ")[0].split(/\s+/).forEach(function (w) { if (w) cands.add(w); });
+                    (t.match(/[A-Za-z_][A-Za-z0-9_]*/g) || []).forEach(function (w) { cands.add(w); });
+                    // #54 标签可能是「中文名 变量名」,也可能是老的「输入 · dst」形式
+                    // → 取所有候选词再比对;否则中文名一上,白名单里的变量名再也匹配不到
+                    // → 参数会被**全部隐藏**(实测踩过:说明区在、参数一个不剩)。
+                    let hit = false;
+                    for (const k of keep) { if (cands.has(k)) { hit = true; break; } }
+                    row.style.display = hit ? "" : "none";
                 }
             },
         };
